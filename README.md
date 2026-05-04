@@ -40,3 +40,6 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+
+icon link: https://www.flaticon.com/de/kostenloses-icon/study_8445148?term=study&page=1&position=5&origin=search&related_id=8445148
