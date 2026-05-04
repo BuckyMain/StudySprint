@@ -1,0 +1,53 @@
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #f8f9ff 0%, #eef2ff 100%);
+  color: #1f2937;
+  font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.app-shell {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding-bottom: 88px;
+}
+
+.hero-gradient {
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  color: #fff;
+}
+
+.metric-card {
+  border: 0;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+.focus-timer {
+  width: 186px;
+  height: 186px;
+  border-radius: 50%;
+  border: 10px solid #dbeafe;
+  display: grid;
+  place-items: center;
+  margin-inline: auto;
+  background: #ffffff;
+}
+
+.bottom-nav {
+  max-width: 480px;
+  margin: 0 auto;
+  left: 0;
+  right: 0;
+}
+
+.nav-btn {
+  min-width: 64px;
+}
+
+.module-progress {
+  height: 10px;
+}
