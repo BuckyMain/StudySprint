@@ -6,7 +6,7 @@ let dbInstance;
 
 export async function getDb() {
 	const mongodbUri = env.MONGODB_URI;
-	const dbName = env.MONGODB_DB_NAME || 'StudySprintDev';
+	const dbName = env.MONGODB_DB_NAME || 'StudySprint';
 
 	if (!client && mongodbUri) {
 		client = new MongoClient(mongodbUri, {
