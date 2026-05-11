@@ -421,6 +421,9 @@
 					<div class="card-body">
 						<h3 class="h6 mb-3">Quick Actions</h3>
 						<div class="d-grid gap-2">
+							<a class="btn btn-outline-secondary rounded-pill" href="/tasks">
+								<i class="bi bi-kanban me-2"></i>Task Seitenansicht
+							</a>
 							<button class="btn btn-primary rounded-pill" onclick={() => (activeTab = 'tasks')}>
 								<i class="bi bi-plus-lg me-2"></i>Aufgabe erstellen
 							</button>
