@@ -8,6 +8,20 @@ function parseId(id) {
 	return new ObjectId(id);
 }
 
+export async function GET({ params, cookies }) {
+	if (!isAuthenticated(cookies)) return unauthorizedResponse();
+
+	const taskId = parseId(params.id);
+	if (!taskId) return json({ error: 'Invalid id' }, { status: 400 });
+
+	const db = await getDb();
+	const task = await db.collection('tasks').findOne({ _id: taskId });
+	if (!task) return json({ error: 'Task not found' }, { status: 404 });
+
+	return json(task);
+}
+
+
 export async function PATCH({ params, request, cookies }) {
 	if (!isAuthenticated(cookies)) return unauthorizedResponse();
 
