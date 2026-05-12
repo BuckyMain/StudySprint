@@ -1,79 +1,143 @@
 <script>
 	import { onDestroy } from 'svelte';
 
-	const tabs = ['home', 'tasks', 'focus', 'progress', 'validate', 'profile'];
-	const priorities = ['Hoch', 'Mittel', 'Niedrig'];
+	const tabs = ['home', 'tasks', 'focus', 'progress', 'profile'];
+	const tabLabels = { home: 'Home', tasks: 'Aufgaben', focus: 'Fokus', progress: 'Fortschritt', profile: 'Profil' };
+	const tabIcons = { home: 'bi-house', tasks: 'bi-list-check', focus: 'bi-stopwatch', progress: 'bi-bar-chart', profile: 'bi-person' };
+	const priorities = ['1', '2', '3', '4', '5'];
+	const priorityLabels = { '1': 'Höchste', '2': 'Hoch', '3': 'Mittel', '4': 'Niedrig', '5': 'Niedrigste' };
 	const focusRatings = ['Sehr fokussiert', 'Okay', 'Abgelenkt'];
 
 	let activeTab = $state('home');
 	let isUnlocked = $state(false);
 	let password = $state('');
 	let authError = $state('');
-
 	let loading = $state(false);
 	let error = $state('');
 
 	let tasks = $state([]);
-	let sessions = $state([]);
 	let reflections = $state([]);
 
-	let taskForm = $state({
-		title: '',
-		module: '',
-		dueDate: '',
-		duration: 25,
-		priority: 'Mittel'
-	});
+	// Tasks sub-view: 'list' | 'new' | 'import' | 'edit'
+	let taskSubView = $state('list');
+	let taskSortBy = $state('priority');
+	let taskFilterModule = $state('');
+	let showOnlyOpen = $state(false);
 
-	let sessionForm = $state({
-		topic: '',
-		module: '',
-		startsAt: '',
-		duration: 25
-	});
+	let taskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3' });
+
+	let editingTaskId = $state('');
+	let editTaskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3' });
 
 	let deadlineInput = $state('');
 	let extractedDeadlines = $state([]);
+	let editingDeadlineIdx = $state(-1);
+	let editingDeadlineData = $state({ title: '', module: '', dueDate: '', priority: '3' });
 	let semesterplanFileName = $state('');
 	let semesterplanImageBase64 = $state('');
 	let semesterplanMimeType = $state('');
 	let ocrLoading = $state(false);
-	let calendarFillLoading = $state(false);
 	let deadlineSuccess = $state('');
 
 	let selectedTaskId = $state('');
 	let focusSecondsLeft = $state(25 * 60);
 	let isFocusRunning = $state(false);
 	let focusTimerHandle = null;
-
 	let reflectionRating = $state('Okay');
 	let reflectionNote = $state('');
 
-	const completedTasks = $derived(tasks.filter((task) => task.status === 'erledigt'));
-	const openTasks = $derived(tasks.filter((task) => task.status !== 'erledigt'));
-	const finishedSessions = $derived(sessions.filter((session) => session.status === 'abgeschlossen'));
+	const completedTasks = $derived(tasks.filter((t) => t.status === 'erledigt'));
+	const openTasks = $derived(tasks.filter((t) => t.status !== 'erledigt'));
 	const totalFocusMinutes = $derived(
-		reflections.reduce((total, item) => total + Number(item.focusMinutes || 0), 0)
+		reflections.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0)
+	);
+	const selectedTask = $derived(tasks.find((t) => t._id === selectedTaskId) ?? null);
+
+	const nearestDeadline = $derived(
+		[...openTasks]
+			.filter((t) => t.dueDate)
+			.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0] ?? null
 	);
 
-	const selectedTask = $derived(tasks.find((task) => task._id === selectedTaskId) ?? null);
-	const nextSession = $derived(
-		[...sessions]
-			.filter((session) => session.status !== 'abgeschlossen')
-			.sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0] ?? null
+	const highestPriorityTask = $derived(
+		[...openTasks].sort((a, b) => Number(a.priority) - Number(b.priority))[0] ?? null
 	);
+
+	const modules = $derived([...new Set(tasks.map((t) => t.module).filter(Boolean))]);
+
+	const filteredSortedTasks = $derived.by(() => {
+		let list = showOnlyOpen ? openTasks : tasks;
+		if (taskFilterModule) list = list.filter((t) => t.module === taskFilterModule);
+		return [...list].sort((a, b) => {
+			if (taskSortBy === 'priority') return Number(a.priority) - Number(b.priority);
+			if (taskSortBy === 'dueDate') {
+				if (!a.dueDate && !b.dueDate) return 0;
+				if (!a.dueDate) return 1;
+				if (!b.dueDate) return -1;
+				return new Date(a.dueDate) - new Date(b.dueDate);
+			}
+			if (taskSortBy === 'duration') return Number(a.duration) - Number(b.duration);
+			return 0;
+		});
+	});
+
+	const upcomingTasks = $derived.by(() => {
+		const now = new Date();
+		const nextWeek = new Date(now.getTime() + 7 * 86400000);
+		return [...openTasks]
+			.filter((t) => t.dueDate && new Date(t.dueDate) <= nextWeek)
+			.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+			.slice(0, 5);
+	});
+
+	const thisWeekCompleted = $derived.by(() => {
+		const now = new Date();
+		const dow = now.getDay();
+		const diffToMon = dow === 0 ? -6 : 1 - dow;
+		const weekStart = new Date(now);
+		weekStart.setDate(now.getDate() + diffToMon);
+		weekStart.setHours(0, 0, 0, 0);
+		return reflections.filter((r) => new Date(r.createdAt) >= weekStart).length;
+	});
+
+	const weeklyData = $derived.by(() => {
+		const labels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+		const counts = Array(7).fill(0);
+		const now = new Date();
+		const dow = now.getDay();
+		const diffToMon = dow === 0 ? -6 : 1 - dow;
+		const weekStart = new Date(now);
+		weekStart.setDate(now.getDate() + diffToMon);
+		weekStart.setHours(0, 0, 0, 0);
+		const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
+		for (const r of reflections) {
+			const d = new Date(r.createdAt);
+			if (d >= weekStart && d < weekEnd) counts[(d.getDay() + 6) % 7]++;
+		}
+		const todayIdx = (now.getDay() + 6) % 7;
+		return labels.map((label, i) => ({ label, count: counts[i], isToday: i === todayIdx }));
+	});
+
+	const maxWeeklyCount = $derived(Math.max(1, ...weeklyData.map((d) => d.count)));
+
+	function priorityBadgeClass(p) {
+		const n = Number(p);
+		if (n === 1) return 'text-bg-danger';
+		if (n === 2) return 'text-bg-warning text-dark';
+		if (n === 3) return 'text-bg-primary';
+		if (n === 4) return 'text-bg-info text-dark';
+		return 'text-bg-secondary';
+	}
 
 	async function api(path, options = {}) {
 		const response = await fetch(path, {
 			headers: { 'content-type': 'application/json', ...(options.headers || {}) },
 			...options
 		});
-
 		if (response.status === 401) {
 			isUnlocked = false;
 			throw new Error('Bitte zuerst entsperren.');
 		}
-
 		if (!response.ok) {
 			let message = 'Fehler bei der Anfrage';
 			try {
@@ -84,22 +148,18 @@
 			}
 			throw new Error(message);
 		}
-
 		return response.json();
 	}
 
 	async function unlockApp() {
 		authError = '';
 		try {
-			await api('/api/auth/unlock', {
-				method: 'POST',
-				body: JSON.stringify({ password })
-			});
+			await api('/api/auth/unlock', { method: 'POST', body: JSON.stringify({ password }) });
 			isUnlocked = true;
 			password = '';
 			await refreshData();
-		} catch (unlockError) {
-			authError = unlockError.message;
+		} catch (e) {
+			authError = e.message;
 		}
 	}
 
@@ -112,21 +172,15 @@
 		loading = true;
 		error = '';
 		try {
-			const [tasksData, sessionsData, reflectionsData] = await Promise.all([
+			const [tasksData, reflectionsData] = await Promise.all([
 				api('/api/tasks'),
-				api('/api/sessions'),
 				api('/api/reflections')
 			]);
-
-			tasks = tasksData.map((item) => ({ ...item, _id: String(item._id) }));
-			sessions = sessionsData.map((item) => ({ ...item, _id: String(item._id) }));
-			reflections = reflectionsData.map((item) => ({ ...item, _id: String(item._id) }));
-
-			if (!selectedTaskId && tasks.length > 0) {
-				selectedTaskId = tasks[0]._id;
-			}
-		} catch (fetchError) {
-			error = fetchError.message;
+			tasks = tasksData.map((t) => ({ ...t, _id: String(t._id) }));
+			reflections = reflectionsData.map((r) => ({ ...r, _id: String(r._id) }));
+			if (!selectedTaskId && tasks.length > 0) selectedTaskId = tasks[0]._id;
+		} catch (e) {
+			error = e.message;
 		} finally {
 			loading = false;
 		}
@@ -135,45 +189,47 @@
 	async function createTask() {
 		error = '';
 		try {
-			await api('/api/tasks', {
-				method: 'POST',
-				body: JSON.stringify(taskForm)
-			});
-			taskForm = { title: '', module: '', dueDate: '', duration: 25, priority: 'Mittel' };
+			await api('/api/tasks', { method: 'POST', body: JSON.stringify(taskForm) });
+			taskForm = { title: '', module: '', dueDate: '', duration: 25, priority: '3' };
+			taskSubView = 'list';
 			await refreshData();
-		} catch (createError) {
-			error = createError.message;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
-	async function editTask(task) {
-		const title = window.prompt('Titel', task.title);
-		if (title === null) return;
-		const module = window.prompt('Modul', task.module);
-		if (module === null) return;
-		const priority = window.prompt('Priorität: Hoch / Mittel / Niedrig', task.priority);
-		if (priority === null) return;
+	function startEditTask(task) {
+		editingTaskId = task._id;
+		editTaskForm = {
+			title: task.title,
+			module: task.module || '',
+			dueDate: task.dueDate || '',
+			duration: task.duration || 25,
+			priority: task.priority || '3'
+		};
+		taskSubView = 'edit';
+	}
 
+	async function updateTask() {
+		error = '';
 		try {
-			await api(`/api/tasks/${task._id}`, {
+			await api(`/api/tasks/${editingTaskId}`, {
 				method: 'PATCH',
-				body: JSON.stringify({ title, module, priority })
+				body: JSON.stringify(editTaskForm)
 			});
+			taskSubView = 'list';
 			await refreshData();
-		} catch (editError) {
-			error = editError.message;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
 	async function setTaskStatus(task, status) {
 		try {
-			await api(`/api/tasks/${task._id}`, {
-				method: 'PATCH',
-				body: JSON.stringify({ status })
-			});
+			await api(`/api/tasks/${task._id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
 			await refreshData();
-		} catch (statusError) {
-			error = statusError.message;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
@@ -182,44 +238,8 @@
 		try {
 			await api(`/api/tasks/${taskId}`, { method: 'DELETE' });
 			await refreshData();
-		} catch (deleteError) {
-			error = deleteError.message;
-		}
-	}
-
-	async function createSession() {
-		error = '';
-		try {
-			await api('/api/sessions', {
-				method: 'POST',
-				body: JSON.stringify(sessionForm)
-			});
-			sessionForm = { topic: '', module: '', startsAt: '', duration: 25 };
-			await refreshData();
-		} catch (createError) {
-			error = createError.message;
-		}
-	}
-
-	async function patchSession(sessionId, patch) {
-		try {
-			await api(`/api/sessions/${sessionId}`, {
-				method: 'PATCH',
-				body: JSON.stringify(patch)
-			});
-			await refreshData();
-		} catch (patchError) {
-			error = patchError.message;
-		}
-	}
-
-	async function deleteSession(sessionId) {
-		if (!window.confirm('Session wirklich löschen?')) return;
-		try {
-			await api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-			await refreshData();
-		} catch (deleteError) {
-			error = deleteError.message;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
@@ -235,8 +255,8 @@
 			deadlineSuccess = extractedDeadlines.length
 				? `${extractedDeadlines.length} Deadline(s) erkannt.`
 				: 'Keine Deadline erkannt.';
-		} catch (extractError) {
-			error = extractError.message;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
@@ -254,45 +274,50 @@
 		reader.onload = () => {
 			const result = String(reader.result || '');
 			const match = result.match(/^data:(.*?);base64,(.*)$/);
-			if (!match) {
-				error = 'Datei konnte nicht gelesen werden.';
-				return;
-			}
+			if (!match) { error = 'Datei konnte nicht gelesen werden.'; return; }
 			semesterplanMimeType = match[1];
 			semesterplanImageBase64 = match[2];
 			semesterplanFileName = file.name;
 		};
-		reader.onerror = () => {
-			error = 'Datei konnte nicht gelesen werden.';
-		};
+		reader.onerror = () => { error = 'Datei konnte nicht gelesen werden.'; };
 		reader.readAsDataURL(file);
 	}
 
 	async function extractDeadlinesWithOcr() {
 		error = '';
 		deadlineSuccess = '';
-		if (!semesterplanImageBase64) {
-			error = 'Bitte zuerst ein Semesterplan-Bild auswaehlen.';
-			return;
-		}
+		if (!semesterplanImageBase64) { error = 'Bitte zuerst eine Datei auswählen.'; return; }
 		ocrLoading = true;
 		try {
 			const payload = await api('/api/deadlines/ocr', {
 				method: 'POST',
-				body: JSON.stringify({
-					imageBase64: semesterplanImageBase64,
-					mimeType: semesterplanMimeType
-				})
+				body: JSON.stringify({ imageBase64: semesterplanImageBase64, mimeType: semesterplanMimeType })
 			});
 			extractedDeadlines = payload.items || [];
 			deadlineSuccess = extractedDeadlines.length
 				? `${extractedDeadlines.length} Deadline(s) per OCR erkannt.`
-				: 'OCR abgeschlossen, aber keine Deadline gefunden.';
-		} catch (ocrError) {
-			error = ocrError.message;
+				: 'Keine Deadline gefunden.';
+		} catch (e) {
+			error = e.message;
 		} finally {
 			ocrLoading = false;
 		}
+	}
+
+	function startEditDeadline(idx) {
+		editingDeadlineIdx = idx;
+		editingDeadlineData = { ...extractedDeadlines[idx] };
+	}
+
+	function saveEditDeadline() {
+		extractedDeadlines = extractedDeadlines.map((item, i) =>
+			i === editingDeadlineIdx ? { ...editingDeadlineData } : item
+		);
+		editingDeadlineIdx = -1;
+	}
+
+	function cancelEditDeadline() {
+		editingDeadlineIdx = -1;
 	}
 
 	async function addDeadlineAsTask(item) {
@@ -304,113 +329,50 @@
 					module: item.module,
 					dueDate: item.dueDate,
 					duration: 45,
-					priority: item.priority
+					priority: item.priority || '3'
 				})
 			});
 			await refreshData();
-		} catch (addError) {
-			error = addError.message;
+			deadlineSuccess = `"${item.title}" wurde zur Aufgabenliste hinzugefügt.`;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
-
-	async function autoFillCalendarFromDeadlines() {
-		error = '';
-		deadlineSuccess = '';
-		if (extractedDeadlines.length === 0) {
-			error = 'Keine Deadlines vorhanden.';
-			return;
-		}
-		calendarFillLoading = true;
-		try {
-			const existing = new Set(sessions.map((session) => `${session.topic}|${session.startsAt || ''}`));
-			let createdCount = 0;
-			for (const item of extractedDeadlines) {
-				const startsAt = `${item.dueDate}T09:00`;
-				const topic = `Deadline Vorbereitung: ${item.title}`;
-				const key = `${topic}|${startsAt}`;
-				if (existing.has(key)) continue;
-				await api('/api/sessions', {
-					method: 'POST',
-					body: JSON.stringify({
-						topic,
-						module: item.module,
-						startsAt,
-						duration: 45,
-						status: 'geplant'
-					})
-				});
-				existing.add(key);
-				createdCount += 1;
-			}
-			await refreshData();
-			deadlineSuccess = createdCount
-				? `${createdCount} Session(s) automatisch in den Kalender eingetragen.`
-				: 'Keine neuen Sessions angelegt (bereits vorhanden).';
-		} catch (calendarError) {
-			error = calendarError.message;
-		} finally {
-			calendarFillLoading = false;
-		}
+	function removeDeadline(idx) {
+		extractedDeadlines = extractedDeadlines.filter((_, i) => i !== idx);
 	}
 
 	function startFocus() {
-		if (!selectedTask) {
-			error = 'Bitte zuerst eine Aufgabe auswählen.';
-			return;
-		}
-
+		if (!selectedTask) { error = 'Bitte zuerst eine Aufgabe auswählen.'; return; }
 		if (isFocusRunning) return;
 		isFocusRunning = true;
 		focusTimerHandle = setInterval(() => {
-			if (focusSecondsLeft <= 1) {
-				stopFocus();
-				focusSecondsLeft = 0;
-				return;
-			}
+			if (focusSecondsLeft <= 1) { stopFocus(); focusSecondsLeft = 0; return; }
 			focusSecondsLeft -= 1;
 		}, 1000);
 	}
 
-	function pauseFocus() {
-		if (!isFocusRunning) return;
-		stopFocus();
-	}
-
-	function resetFocus() {
-		stopFocus();
-		focusSecondsLeft = 25 * 60;
-	}
-
+	function pauseFocus() { if (isFocusRunning) stopFocus(); }
+	function resetFocus() { stopFocus(); focusSecondsLeft = 25 * 60; }
 	function stopFocus() {
 		isFocusRunning = false;
-		if (focusTimerHandle) {
-			clearInterval(focusTimerHandle);
-			focusTimerHandle = null;
-		}
+		if (focusTimerHandle) { clearInterval(focusTimerHandle); focusTimerHandle = null; }
 	}
 
-	function formatSeconds(totalSeconds) {
-		const minutes = Math.floor(totalSeconds / 60);
-		const seconds = totalSeconds % 60;
-		return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+	function formatSeconds(s) {
+		return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 	}
 
-	function formatDateTime(value) {
-		if (!value) return 'Keine Zeit gesetzt';
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return value;
-		return date.toLocaleString('de-CH');
+	function formatDate(value) {
+		if (!value) return '—';
+		const d = new Date(value);
+		return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('de-CH');
 	}
 
 	async function completeFocusSession() {
-		if (!selectedTask) {
-			error = 'Keine aktive Aufgabe vorhanden.';
-			return;
-		}
-
+		if (!selectedTask) { error = 'Keine aktive Aufgabe vorhanden.'; return; }
 		const elapsedMinutes = Math.max(1, Math.round((25 * 60 - focusSecondsLeft) / 60));
-
 		try {
 			await api('/api/reflections', {
 				method: 'POST',
@@ -426,32 +388,23 @@
 			reflectionRating = 'Okay';
 			resetFocus();
 			activeTab = 'progress';
-		} catch (completeError) {
-			error = completeError.message;
+		} catch (e) {
+			error = e.message;
 		}
 	}
 
-	onDestroy(() => {
-		stopFocus();
-	});
+	onDestroy(() => stopFocus());
 </script>
 
 <svelte:head>
-	<title>StudySprint Prototyp</title>
-	<meta
-		name="description"
-		content="StudySprint Prototyp mit Aufgaben, Sessions, Fokus-Timer, Reflexion und Semesterplan-Import."
-	/>
+	<title>StudySprint</title>
+	<meta name="description" content="StudySprint – Dein persönlicher Lernassistent." />
 </svelte:head>
 
 <main class="app-shell">
 	<header class="p-3 pb-2">
 		<div class="hero-gradient rounded-4 p-3 shadow-sm">
-			<div class="d-flex justify-content-between align-items-start">
-				<div>
-					<h1 class="h4 mb-1">StudySprint</h1>
-				</div>
-			</div>
+			<h1 class="h4 mb-0">StudySprint</h1>
 		</div>
 	</header>
 
@@ -461,7 +414,7 @@
 				<div class="card-body">
 					<h2 class="h5 mb-2">App entsperren</h2>
 					<p class="small text-secondary mb-3">
-					     Setze optional <code>APP_PASSWORD</code> in deiner .env.
+						Setze optional <code>APP_PASSWORD</code> in deiner .env.
 					</p>
 					<div class="mb-3">
 						<label class="form-label small" for="unlock-password">Passwort</label>
@@ -489,236 +442,71 @@
 				<div class="alert alert-danger py-2 small">{error}</div>
 			{/if}
 
+			<!-- ==================== HOME ==================== -->
 			{#if activeTab === 'home'}
 				<div class="row g-2 mb-3">
 					<div class="col-6">
 						<div class="card metric-card rounded-4">
 							<div class="card-body">
-								<p class="text-secondary small mb-1">Nächste Session</p>
-								<p class="fw-semibold mb-0">{nextSession ? formatDateTime(nextSession.startsAt) : 'Keine'}</p>
+								<p class="text-secondary small mb-1">Offene Aufgaben</p>
+								<p class="fw-semibold mb-0 h5">{openTasks.length}</p>
 							</div>
 						</div>
 					</div>
 					<div class="col-6">
 						<div class="card metric-card rounded-4">
 							<div class="card-body">
-								<p class="text-secondary small mb-1">Offene Aufgaben</p>
-								<p class="fw-semibold mb-0">{openTasks.length}</p>
+								<p class="text-secondary small mb-1">Diese Woche erledigt</p>
+								<p class="fw-semibold mb-0 h5">{thisWeekCompleted}</p>
 							</div>
 						</div>
 					</div>
 				</div>
 
-				<div class="card rounded-4 border-0 shadow-sm mb-3">
-					<div class="card-body">
-						<h3 class="h6 mb-2">Priorität heute</h3>
-						{#if openTasks.length > 0}
-							<p class="mb-1 fw-semibold">{openTasks[0].title}</p>
+				{#if nearestDeadline}
+					<div class="card rounded-4 border-0 shadow-sm mb-3">
+						<div class="card-body">
+							<p class="text-secondary small mb-1">Nächste Deadline</p>
+							<p class="fw-semibold mb-0">{nearestDeadline.title}</p>
 							<p class="small text-secondary mb-0">
-								{openTasks[0].module} · {openTasks[0].duration} min · {openTasks[0].priority}
+								{nearestDeadline.module} · fällig {formatDate(nearestDeadline.dueDate)}
 							</p>
-						{:else}
-							<p class="small text-secondary mb-0">Keine offenen Aufgaben.</p>
-						{/if}
+						</div>
 					</div>
-				</div>
+				{/if}
+
+				{#if highestPriorityTask}
+					<div class="card rounded-4 border-0 shadow-sm mb-3">
+						<div class="card-body">
+							<p class="text-secondary small mb-1">Priorität heute</p>
+							<div class="d-flex align-items-center gap-2 mb-1">
+								<span class={`badge ${priorityBadgeClass(highestPriorityTask.priority)}`}>
+									Prio {highestPriorityTask.priority}
+								</span>
+								<p class="fw-semibold mb-0">{highestPriorityTask.title}</p>
+							</div>
+							<p class="small text-secondary mb-0">
+								{highestPriorityTask.module}
+								{highestPriorityTask.dueDate ? ` · Deadline ${formatDate(highestPriorityTask.dueDate)}` : ''}
+							</p>
+						</div>
+					</div>
+				{/if}
 
 				<div class="card rounded-4 border-0 shadow-sm">
 					<div class="card-body">
-						<h3 class="h6 mb-3">Quick Actions</h3>
-						<div class="d-grid gap-2">
-							<a class="btn btn-outline-secondary rounded-pill" href="/tasks">
-								<i class="bi bi-kanban me-2"></i>Task Seitenansicht
-							</a>
-							<button class="btn btn-primary rounded-pill" onclick={() => (activeTab = 'tasks')}>
-								<i class="bi bi-plus-lg me-2"></i>Aufgabe erstellen
-							</button>
-							<button class="btn btn-outline-primary rounded-pill" onclick={() => (activeTab = 'focus')}>
-								<i class="bi bi-play-circle me-2"></i>Fokusmodus starten
-							</button>
-							<button class="btn btn-outline-dark rounded-pill" onclick={() => (activeTab = 'validate')}>
-								<i class="bi bi-clipboard-check me-2"></i>Validation Notizen
-							</button>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if activeTab === 'tasks'}
-				<div class="card rounded-4 border-0 shadow-sm mb-3">
-					<div class="card-body">
-						<h2 class="h5 mb-3">Neue Aufgabe</h2>
-						<div class="row g-2">
-							<div class="col-12">
-								<input class="form-control rounded-3" placeholder="Titel" bind:value={taskForm.title} />
-							</div>
-							<div class="col-6">
-								<input class="form-control rounded-3" placeholder="Modul" bind:value={taskForm.module} />
-							</div>
-							<div class="col-6">
-								<input class="form-control rounded-3" type="date" bind:value={taskForm.dueDate} />
-							</div>
-							<div class="col-6">
-								<input class="form-control rounded-3" type="number" min="10" bind:value={taskForm.duration} />
-							</div>
-							<div class="col-6">
-								<select class="form-select rounded-3" bind:value={taskForm.priority}>
-									{#each priorities as priority}
-										<option>{priority}</option>
-									{/each}
-								</select>
-							</div>
-							<div class="col-12">
-								<button class="btn btn-primary rounded-pill w-100" onclick={createTask}>Speichern</button>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<div class="card rounded-4 border-0 shadow-sm mb-3">
-					<div class="card-body">
-						<h3 class="h6 mb-2">Semesterplan Import (Gemini OCR)</h3>
-						<p class="small text-secondary mb-2">
-							Text aus PDF einfügen. Deadlines werden automatisch erkannt und als Aufgaben übernommen.
-						</p>
-						<div class="mb-2">
-							<label class="form-label small" for="semesterplan-file">Semesterplan Datei (Bild/PDF)</label>
-							<input
-								id="semesterplan-file"
-								class="form-control rounded-3"
-								type="file"
-								accept="image/*,application/pdf"
-								onchange={handleSemesterplanFile}
-							/>
-							{#if semesterplanFileName}
-								<p class="small text-secondary mt-1 mb-0">Ausgewaehlt: {semesterplanFileName}</p>
-							{/if}
-						</div>
-						<div class="d-grid gap-2 mb-2">
-							<button class="btn btn-outline-primary rounded-pill w-100" onclick={extractDeadlinesWithOcr} disabled={ocrLoading}>
-								{ocrLoading ? 'OCR laeuft...' : 'OCR aus Datei starten'}
-							</button>
-						</div>
-						<textarea
-							class="form-control rounded-3 mb-2"
-							rows="3"
-							placeholder="z.B. Prototyping Abgabe 21.06.2026"
-							bind:value={deadlineInput}
-						></textarea>
-						<button class="btn btn-outline-primary rounded-pill w-100 mb-2" onclick={extractDeadlines}>
-							Deadlines extrahieren
-						</button>
-						{#if deadlineSuccess}
-							<div class="alert alert-success py-2 small">{deadlineSuccess}</div>
-						{/if}
-						{#if extractedDeadlines.length > 0}
-							<button
-								class="btn btn-success rounded-pill w-100 mb-2"
-								onclick={autoFillCalendarFromDeadlines}
-								disabled={calendarFillLoading}>
-								{calendarFillLoading ? 'Kalender wird befuellt...' : 'Kalender automatisch befuellen'}
-							</button>
-							<div class="small">
-								{#each extractedDeadlines as item}
-									<div class="border rounded-3 p-2 mb-2">
-										<p class="mb-1 fw-semibold">{item.title}</p>
-										<p class="mb-1 text-secondary">{item.module} · {item.dueDate}</p>
-										<button class="btn btn-sm btn-success rounded-pill" onclick={() => addDeadlineAsTask(item)}>
-											Als Aufgabe übernehmen
-										</button>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				</div>
-
-				<h3 class="h6 mb-2">Aufgabenliste</h3>
-				{#if tasks.length === 0}
-					<p class="small text-secondary">Noch keine Aufgaben.</p>
-				{:else}
-					{#each tasks as task}
-						<div class="card rounded-4 border-0 shadow-sm mb-2">
-							<div class="card-body">
-								<div class="d-flex justify-content-between">
-									<div>
-										<p class="fw-semibold mb-1">{task.title}</p>
-										<p class="small text-secondary mb-0">
-											{task.module} · {task.duration} min · {task.priority}
-											{task.dueDate ? ` · fällig ${task.dueDate}` : ''}
-										</p>
-									</div>
-									<span class={`badge ${task.status === 'erledigt' ? 'text-bg-success' : 'text-bg-secondary'}`}>
-										{task.status}
-									</span>
-								</div>
-								<div class="d-flex gap-2 mt-2">
-									<button class="btn btn-sm btn-outline-primary rounded-pill" onclick={() => editTask(task)}>
-										Bearbeiten
-									</button>
-									<button
-										class="btn btn-sm btn-outline-success rounded-pill"
-										onclick={() => setTaskStatus(task, task.status === 'erledigt' ? 'offen' : 'erledigt')}
-									>
-										{task.status === 'erledigt' ? 'Wieder offen' : 'Erledigt'}
-									</button>
-									<button class="btn btn-sm btn-outline-danger rounded-pill" onclick={() => deleteTask(task._id)}>
-										Löschen
-									</button>
-								</div>
-							</div>
-						</div>
-					{/each}
-				{/if}
-
-				<div class="card rounded-4 border-0 shadow-sm mt-3">
-					<div class="card-body">
-						<h3 class="h6 mb-3">Session planen</h3>
-						<div class="row g-2">
-							<div class="col-12">
-								<input class="form-control rounded-3" placeholder="Thema" bind:value={sessionForm.topic} />
-							</div>
-							<div class="col-6">
-								<input class="form-control rounded-3" placeholder="Modul" bind:value={sessionForm.module} />
-							</div>
-							<div class="col-6">
-								<input class="form-control rounded-3" type="number" min="10" bind:value={sessionForm.duration} />
-							</div>
-							<div class="col-12">
-								<input class="form-control rounded-3" type="datetime-local" bind:value={sessionForm.startsAt} />
-							</div>
-							<div class="col-12">
-								<button class="btn btn-outline-primary rounded-pill w-100" onclick={createSession}>
-									Session speichern
-								</button>
-							</div>
-						</div>
-						<hr />
-						{#if sessions.length === 0}
-							<p class="small text-secondary mb-0">Noch keine Sessions geplant.</p>
+						<h3 class="h6 mb-3">Aufgaben diese Woche</h3>
+						{#if upcomingTasks.length === 0}
+							<p class="small text-secondary mb-0">Keine Aufgaben mit Deadline in den nächsten 7 Tagen.</p>
 						{:else}
-							{#each sessions as session}
-								<div class="border rounded-3 p-2 mb-2">
-									<p class="fw-semibold mb-1">{session.topic}</p>
-									<p class="small text-secondary mb-2">
-										{session.module} · {formatDateTime(session.startsAt)} · {session.duration} min
-									</p>
-									<div class="d-flex gap-2">
-										<button
-											class="btn btn-sm btn-outline-success rounded-pill"
-											onclick={() => patchSession(session._id, { status: 'abgeschlossen' })}
-										>
-											Abgeschlossen
-										</button>
-										<button
-											class="btn btn-sm btn-outline-secondary rounded-pill"
-											onclick={() => patchSession(session._id, { status: 'geplant' })}
-										>
-											Geplant
-										</button>
-										<button class="btn btn-sm btn-outline-danger rounded-pill" onclick={() => deleteSession(session._id)}>
-											Löschen
-										</button>
+							{#each upcomingTasks as task}
+								<div class="d-flex align-items-center gap-2 mb-2">
+									<span class={`badge flex-shrink-0 ${priorityBadgeClass(task.priority)}`}>
+										{task.priority}
+									</span>
+									<div class="flex-grow-1 overflow-hidden">
+										<p class="mb-0 fw-semibold text-truncate small">{task.title}</p>
+										<p class="mb-0 text-secondary" style="font-size: 11px;">{task.module} · {formatDate(task.dueDate)}</p>
 									</div>
 								</div>
 							{/each}
@@ -727,12 +515,287 @@
 				</div>
 			{/if}
 
+			<!-- ==================== TASKS ==================== -->
+			{#if activeTab === 'tasks'}
+
+				<!-- Sub-view: LIST -->
+				{#if taskSubView === 'list'}
+					<div class="d-flex gap-2 mb-3">
+						<button class="btn btn-primary rounded-pill flex-grow-1" onclick={() => (taskSubView = 'new')}>
+							<i class="bi bi-plus-lg me-1"></i>Neue Aufgabe
+						</button>
+						<button class="btn btn-outline-primary rounded-pill flex-grow-1" onclick={() => (taskSubView = 'import')}>
+							<i class="bi bi-upload me-1"></i>Semesterplan
+						</button>
+					</div>
+
+					<!-- Sort & Filter -->
+					<div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+						<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskSortBy}>
+							<option value="priority">Sortierung: Priorität</option>
+							<option value="dueDate">Sortierung: Deadline</option>
+							<option value="duration">Sortierung: Dauer</option>
+						</select>
+						<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskFilterModule}>
+							<option value="">Alle Module</option>
+							{#each modules as mod}
+								<option value={mod}>{mod}</option>
+							{/each}
+						</select>
+						<button
+							class={`btn btn-sm rounded-pill ${showOnlyOpen ? 'btn-primary' : 'btn-outline-secondary'}`}
+							onclick={() => (showOnlyOpen = !showOnlyOpen)}
+						>
+							{showOnlyOpen ? 'Nur offene' : 'Alle'}
+						</button>
+					</div>
+
+					{#if filteredSortedTasks.length === 0}
+						<p class="small text-secondary">Keine Aufgaben gefunden.</p>
+					{:else}
+						{#each filteredSortedTasks as task}
+							<div class="card rounded-4 border-0 shadow-sm mb-2">
+								<div class="card-body">
+									<div class="d-flex justify-content-between align-items-start">
+										<div class="flex-grow-1 me-2">
+											<div class="d-flex align-items-center gap-2 mb-1">
+												<span class={`badge ${priorityBadgeClass(task.priority)}`}>Prio {task.priority}</span>
+												<span class={`badge ${task.status === 'erledigt' ? 'text-bg-success' : 'text-bg-light text-dark border'}`}>
+													{task.status === 'erledigt' ? 'Erledigt' : 'Offen'}
+												</span>
+											</div>
+											<p class="fw-semibold mb-1">{task.title}</p>
+											<p class="small text-secondary mb-0">
+												{task.module}
+												{task.dueDate ? ` · Deadline ${formatDate(task.dueDate)}` : ''}
+												· {task.duration} min
+											</p>
+										</div>
+									</div>
+									<div class="d-flex gap-2 mt-2 flex-wrap">
+										<button class="btn btn-sm btn-outline-primary rounded-pill" onclick={() => startEditTask(task)}>
+											Bearbeiten
+										</button>
+										<button
+											class="btn btn-sm btn-outline-success rounded-pill"
+											onclick={() => setTaskStatus(task, task.status === 'erledigt' ? 'offen' : 'erledigt')}
+										>
+											{task.status === 'erledigt' ? 'Wieder öffnen' : 'Als erledigt markieren'}
+										</button>
+										<button class="btn btn-sm btn-outline-danger rounded-pill" onclick={() => deleteTask(task._id)}>
+											Löschen
+										</button>
+									</div>
+								</div>
+							</div>
+						{/each}
+					{/if}
+				{/if}
+
+				<!-- Sub-view: NEW TASK -->
+				{#if taskSubView === 'new'}
+					<div class="d-flex align-items-center mb-3">
+						<button class="btn btn-outline-secondary rounded-pill me-3" onclick={() => (taskSubView = 'list')}>
+							<i class="bi bi-arrow-left me-1"></i>Zurück
+						</button>
+						<h2 class="h5 mb-0">Neue Aufgabe</h2>
+					</div>
+					<form onsubmit={(e) => { e.preventDefault(); createTask(); }} class="card rounded-4 border-0 shadow-sm">
+						<div class="card-body">
+							<div class="row g-2">
+								<div class="col-12">
+									<label class="form-label small" for="new-title">Titel</label>
+									<input id="new-title" class="form-control rounded-3" bind:value={taskForm.title} required placeholder="z.B. API-Doku fertigstellen" />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="new-module">Modul</label>
+									<input id="new-module" class="form-control rounded-3" bind:value={taskForm.module} placeholder="Prototyping" />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="new-due">Deadline / Abgabefrist</label>
+									<input id="new-due" class="form-control rounded-3" type="date" bind:value={taskForm.dueDate} />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="new-duration">Geschätzte Bearbeitungsdauer (Min.)</label>
+									<input id="new-duration" class="form-control rounded-3" type="number" min="5" step="5" bind:value={taskForm.duration} />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="new-priority">Priorität (1 = höchste)</label>
+									<select id="new-priority" class="form-select rounded-3" bind:value={taskForm.priority}>
+										{#each priorities as p}
+											<option value={p}>{p} – {priorityLabels[p]}</option>
+										{/each}
+									</select>
+								</div>
+								<div class="col-12 mt-2">
+									<button class="btn btn-primary rounded-pill w-100" type="submit">Aufgabe speichern</button>
+								</div>
+							</div>
+						</div>
+					</form>
+				{/if}
+
+				<!-- Sub-view: EDIT TASK -->
+				{#if taskSubView === 'edit'}
+					<div class="d-flex align-items-center mb-3">
+						<button class="btn btn-outline-secondary rounded-pill me-3" onclick={() => (taskSubView = 'list')}>
+							<i class="bi bi-arrow-left me-1"></i>Zurück
+						</button>
+						<h2 class="h5 mb-0">Aufgabe bearbeiten</h2>
+					</div>
+					<form onsubmit={(e) => { e.preventDefault(); updateTask(); }} class="card rounded-4 border-0 shadow-sm">
+						<div class="card-body">
+							<div class="row g-2">
+								<div class="col-12">
+									<label class="form-label small" for="edit-title">Titel</label>
+									<input id="edit-title" class="form-control rounded-3" bind:value={editTaskForm.title} required />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="edit-module">Modul</label>
+									<input id="edit-module" class="form-control rounded-3" bind:value={editTaskForm.module} />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="edit-due">Deadline / Abgabefrist</label>
+									<input id="edit-due" class="form-control rounded-3" type="date" bind:value={editTaskForm.dueDate} />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="edit-duration">Geschätzte Bearbeitungsdauer (Min.)</label>
+									<input id="edit-duration" class="form-control rounded-3" type="number" min="5" step="5" bind:value={editTaskForm.duration} />
+								</div>
+								<div class="col-6">
+									<label class="form-label small" for="edit-priority">Priorität (1 = höchste)</label>
+									<select id="edit-priority" class="form-select rounded-3" bind:value={editTaskForm.priority}>
+										{#each priorities as p}
+											<option value={p}>{p} – {priorityLabels[p]}</option>
+										{/each}
+									</select>
+								</div>
+								<div class="col-12 mt-2">
+									<button class="btn btn-primary rounded-pill w-100" type="submit">Änderungen speichern</button>
+								</div>
+							</div>
+						</div>
+					</form>
+				{/if}
+
+				<!-- Sub-view: IMPORT -->
+				{#if taskSubView === 'import'}
+					<div class="d-flex align-items-center mb-3">
+						<button class="btn btn-outline-secondary rounded-pill me-3" onclick={() => (taskSubView = 'list')}>
+							<i class="bi bi-arrow-left me-1"></i>Zurück
+						</button>
+						<h2 class="h5 mb-0">Semesterplan importieren</h2>
+					</div>
+
+					<div class="card rounded-4 border-0 shadow-sm mb-3">
+						<div class="card-body">
+							<p class="small text-secondary mb-3">
+								Kopiere den Text deines Semesterplans in das Textfeld oder lade eine Datei (Bild/PDF) hoch.
+								Deadlines und Abgaben werden automatisch erkannt und als Aufgaben vorgeschlagen –
+								du kannst jeden Eintrag vor dem Übernehmen prüfen und anpassen.
+							</p>
+
+							<div class="mb-3">
+								<label class="form-label small" for="semesterplan-file">Semesterplan hochladen (Bild oder PDF)</label>
+								<input
+									id="semesterplan-file"
+									class="form-control rounded-3"
+									type="file"
+									accept="image/*,application/pdf"
+									onchange={handleSemesterplanFile}
+								/>
+								{#if semesterplanFileName}
+									<p class="small text-secondary mt-1 mb-0">Ausgewählt: {semesterplanFileName}</p>
+								{/if}
+							</div>
+							<button class="btn btn-outline-primary rounded-pill w-100 mb-3" onclick={extractDeadlinesWithOcr} disabled={ocrLoading}>
+								{ocrLoading ? 'Analyse läuft...' : 'Datei analysieren (OCR)'}
+							</button>
+
+							<div class="mb-2">
+								<label class="form-label small" for="deadline-text">Oder Text direkt einfügen</label>
+								<textarea
+									id="deadline-text"
+									class="form-control rounded-3"
+									rows="4"
+									placeholder="z.B. Prototyping Abgabe 21.06.2026&#10;Analysis Prüfung 15.06.2026"
+									bind:value={deadlineInput}
+								></textarea>
+							</div>
+							<button class="btn btn-outline-primary rounded-pill w-100" onclick={extractDeadlines}>
+								Text analysieren
+							</button>
+
+							{#if deadlineSuccess}
+								<div class="alert alert-success py-2 small mt-3 mb-0">{deadlineSuccess}</div>
+							{/if}
+						</div>
+					</div>
+
+					{#if extractedDeadlines.length > 0}
+						<h3 class="h6 mb-2">Erkannte Einträge – bitte prüfen und übernehmen</h3>
+						{#each extractedDeadlines as item, idx}
+							<div class="card rounded-4 border-0 shadow-sm mb-2">
+								<div class="card-body">
+									{#if editingDeadlineIdx === idx}
+										<div class="row g-2 mb-2">
+											<div class="col-12">
+												<label class="form-label small" for={`dl-title-${idx}`}>Titel</label>
+												<input id={`dl-title-${idx}`} class="form-control form-control-sm rounded-3" bind:value={editingDeadlineData.title} />
+											</div>
+											<div class="col-6">
+												<label class="form-label small" for={`dl-module-${idx}`}>Modul</label>
+												<input id={`dl-module-${idx}`} class="form-control form-control-sm rounded-3" bind:value={editingDeadlineData.module} />
+											</div>
+											<div class="col-6">
+												<label class="form-label small" for={`dl-date-${idx}`}>Deadline</label>
+												<input id={`dl-date-${idx}`} class="form-control form-control-sm rounded-3" type="date" bind:value={editingDeadlineData.dueDate} />
+											</div>
+											<div class="col-6">
+												<label class="form-label small" for={`dl-prio-${idx}`}>Priorität</label>
+												<select id={`dl-prio-${idx}`} class="form-select form-select-sm rounded-3" bind:value={editingDeadlineData.priority}>
+													{#each priorities as p}
+														<option value={p}>{p} – {priorityLabels[p]}</option>
+													{/each}
+												</select>
+											</div>
+										</div>
+										<div class="d-flex gap-2">
+											<button class="btn btn-sm btn-primary rounded-pill" onclick={saveEditDeadline}>Speichern</button>
+											<button class="btn btn-sm btn-outline-secondary rounded-pill" onclick={cancelEditDeadline}>Abbrechen</button>
+										</div>
+									{:else}
+										<p class="fw-semibold mb-1">{item.title}</p>
+										<p class="small text-secondary mb-2">
+											{item.module || '—'} · {item.dueDate ? formatDate(item.dueDate) : 'Kein Datum'}
+											· Prio {item.priority || '3'}
+										</p>
+										<div class="d-flex gap-2 flex-wrap">
+											<button class="btn btn-sm btn-success rounded-pill" onclick={() => addDeadlineAsTask(item)}>
+												Zur Aufgabenliste hinzufügen
+											</button>
+											<button class="btn btn-sm btn-outline-primary rounded-pill" onclick={() => startEditDeadline(idx)}>
+												Bearbeiten
+											</button>
+											<button class="btn btn-sm btn-outline-danger rounded-pill" onclick={() => removeDeadline(idx)}>
+												Entfernen
+											</button>
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					{/if}
+				{/if}
+			{/if}
+
+			<!-- ==================== FOCUS ==================== -->
 			{#if activeTab === 'focus'}
 				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body text-center">
-						<h2 class="h5 mb-3">Fokus Session</h2>
+						<h2 class="h5 mb-3">Fokus Timer</h2>
 						<div class="mb-3">
-							<label class="form-label small" for="selected-task">Aktive Aufgabe</label>
+							<label class="form-label small" for="selected-task">Aufgabe auswählen</label>
 							<select id="selected-task" class="form-select rounded-3" bind:value={selectedTaskId}>
 								<option value="">Bitte wählen</option>
 								{#each openTasks as task}
@@ -757,7 +820,7 @@
 
 				<div class="card rounded-4 border-0 shadow-sm">
 					<div class="card-body">
-						<h3 class="h6 mb-3">Session-Abschluss / Reflexion</h3>
+						<h3 class="h6 mb-3">Fokus abschliessen & Reflexion</h3>
 						<div class="mb-2">
 							<label class="form-label small" for="focus-rating">Wie fokussiert warst du?</label>
 							<select id="focus-rating" class="form-select rounded-3" bind:value={reflectionRating}>
@@ -767,7 +830,7 @@
 							</select>
 						</div>
 						<div class="mb-3">
-							<label class="form-label small" for="focus-note">Kurze Notiz</label>
+							<label class="form-label small" for="focus-note">Kurze Notiz (optional)</label>
 							<textarea
 								id="focus-note"
 								class="form-control rounded-3"
@@ -777,51 +840,87 @@
 							></textarea>
 						</div>
 						<button class="btn btn-success rounded-pill w-100" onclick={completeFocusSession}>
-							Session abschliessen
+							Aufgabe als erledigt markieren
 						</button>
 					</div>
 				</div>
 			{/if}
 
+			<!-- ==================== PROGRESS ==================== -->
 			{#if activeTab === 'progress'}
-				<h2 class="h5 mb-3">Fortschritt</h2>
+				<h2 class="h5 mb-3">Mein Fortschritt</h2>
+
 				<div class="row g-2 mb-3">
-					<div class="col-4">
+					<div class="col-6">
 						<div class="card metric-card rounded-4 text-center">
 							<div class="card-body py-3">
-								<p class="small text-secondary mb-1">Tasks</p>
-								<p class="h5 mb-0">{completedTasks.length}/{tasks.length}</p>
+								<p class="small text-secondary mb-1">Aufgaben</p>
+								<p class="h5 mb-0">{completedTasks.length} / {tasks.length}</p>
 							</div>
 						</div>
 					</div>
-					<div class="col-4">
+					<div class="col-6">
 						<div class="card metric-card rounded-4 text-center">
 							<div class="card-body py-3">
-								<p class="small text-secondary mb-1">Sessions</p>
-								<p class="h5 mb-0">{finishedSessions.length}</p>
-							</div>
-						</div>
-					</div>
-					<div class="col-4">
-						<div class="card metric-card rounded-4 text-center">
-							<div class="card-body py-3">
-								<p class="small text-secondary mb-1">Fokuszeit</p>
-								<p class="h5 mb-0">{totalFocusMinutes}m</p>
+								<p class="small text-secondary mb-1">Fokuszeit gesamt</p>
+								<p class="h5 mb-0">{totalFocusMinutes} min</p>
 							</div>
 						</div>
 					</div>
 				</div>
 
+				<!-- Weekly chart -->
+				<div class="card rounded-4 border-0 shadow-sm mb-3">
+					<div class="card-body">
+						<h3 class="h6 mb-3">Erledigte Aufgaben diese Woche</h3>
+						<div class="d-flex align-items-end gap-1" style="height: 72px;">
+							{#each weeklyData as day}
+								<div class="flex-grow-1 d-flex flex-column align-items-center gap-1">
+									<div
+										class={`rounded-top w-100 ${day.isToday ? 'bg-primary' : 'bg-secondary bg-opacity-25'}`}
+										style="height: {Math.max(4, Math.round((day.count / maxWeeklyCount) * 52))}px; transition: height 0.3s;"
+									></div>
+									<span class={`small ${day.isToday ? 'fw-bold text-primary' : 'text-secondary'}`} style="font-size: 10px;">
+										{day.label}
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<!-- Completed tasks with details -->
 				<div class="card rounded-4 border-0 shadow-sm">
 					<div class="card-body">
-						<h3 class="h6 mb-3">Letzte Reflexionen</h3>
-						{#if reflections.length === 0}
-							<p class="small text-secondary mb-0">Noch keine Reflexionen gespeichert.</p>
+						<h3 class="h6 mb-3">Abgeschlossene Aufgaben</h3>
+						{#if completedTasks.length === 0}
+							<p class="small text-secondary mb-0">Noch keine Aufgaben abgeschlossen.</p>
 						{:else}
-							{#each reflections.slice(0, 5) as reflection}
+							{#each completedTasks as task}
+								{@const ref = reflections.find((r) => r.taskId === task._id)}
+								{@const diff = ref ? Number(ref.focusMinutes) - Number(task.duration) : null}
 								<div class="border-bottom pb-2 mb-2">
-									<p class="fw-semibold mb-1">{reflection.rating} · {reflection.focusMinutes} min</p>
-									<p class="small text-secondary mb-0">{reflection.note || 'Ohne Notiz'}</p>
+									<div class="d-flex align-items-start justify-content-between">
+										<div>
+											<div class="d-flex align-items-center gap-2 mb-1">
+												<span class={`badge ${priorityBadgeClass(task.priority)}`}>Prio {task.priority}</span>
+												{#if diff !== null}
+													<span class={`badge ${diff > 10 ? 'text-bg-danger' : diff < -10 ? 'text-bg-success' : 'text-bg-secondary'}`}>
+														{diff > 0 ? '+' : ''}{diff} min
+													</span>
+												{/if}
+											</div>
+											<p class="fw-semibold mb-0 small">{task.title}</p>
+											<p class="text-secondary mb-0" style="font-size: 11px;">{task.module}</p>
+										</div>
+										<div class="text-end flex-shrink-0 ms-2">
+											<p class="small mb-0 text-secondary">Schätzung: {task.duration} min</p>
+											{#if ref}
+												<p class="small mb-0">Tatsächlich: {ref.focusMinutes} min</p>
+												<p class="small text-secondary mb-0">{ref.rating}</p>
+											{/if}
+										</div>
+									</div>
 								</div>
 							{/each}
 						{/if}
@@ -829,32 +928,15 @@
 				</div>
 			{/if}
 
-			{#if activeTab === 'validate'}
-				<div class="card rounded-4 border-0 shadow-sm">
-					<div class="card-body">
-						<h2 class="h5 mb-3">Validate / User Testing</h2>
-						<p class="small text-secondary mb-3">
-							Diese Ansicht hilft dir fürs Modul bei Beobachtungen, Kennzahlen und Ableitung von Verbesserungen.
-						</p>
-						<ul class="small mb-0">
-							<li>Testperson schafft "Aufgabe erstellen" in unter 30 Sekunden.</li>
-							<li>Mindestens 1 Fokus-Session inklusive Reflexion wird durchgeführt.</li>
-							<li>Pain points notieren: unklare Labels, fehlendes Feedback, zu viele Klicks.</li>
-							<li>Verbesserungsvorschlag direkt als GitHub Issue dokumentieren.</li>
-						</ul>
-					</div>
-				</div>
-			{/if}
-
+			<!-- ==================== PROFILE ==================== -->
 			{#if activeTab === 'profile'}
 				<div class="card rounded-4 border-0 shadow-sm">
 					<div class="card-body">
-						<h2 class="h5 mb-3">Profil & Settings</h2>
+						<h2 class="h5 mb-3">Profil & Einstellungen</h2>
 						<p class="small text-secondary mb-2">Prototyp für Einzelarbeit (ZHAW Prototyping Modul).</p>
 						<ul class="small text-secondary">
 							<li>Stack: SvelteKit + MongoDB</li>
-							<li>KI-Einsatz: transparenter Einsatz dokumentieren</li>
-							<li>Deployment: online verfügbar machen</li>
+							<li>KI-Einsatz: Gemini OCR für Semesterplan-Import</li>
 						</ul>
 						<button class="btn btn-outline-danger rounded-pill w-100 mt-2" onclick={logoutApp}>
 							App sperren
@@ -865,21 +947,16 @@
 		</section>
 
 		<nav class="bottom-nav fixed-bottom bg-white border-top py-2 px-2">
-			<div class="d-flex justify-content-around flex-wrap">
+			<div class="d-flex justify-content-around">
 				{#each tabs as tab}
 					<button
 						class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1"
 						class:btn-primary={activeTab === tab}
 						class:btn-light={activeTab !== tab}
-						onclick={() => (activeTab = tab)}
+						onclick={() => { activeTab = tab; if (tab === 'tasks') taskSubView = 'list'; }}
 					>
-						{#if tab === 'home'}<i class="bi bi-house"></i>{/if}
-						{#if tab === 'tasks'}<i class="bi bi-list-check"></i>{/if}
-						{#if tab === 'focus'}<i class="bi bi-stopwatch"></i>{/if}
-						{#if tab === 'progress'}<i class="bi bi-bar-chart"></i>{/if}
-						{#if tab === 'validate'}<i class="bi bi-clipboard-check"></i>{/if}
-						{#if tab === 'profile'}<i class="bi bi-person"></i>{/if}
-						<span class="small">{tab}</span>
+						<i class={`bi ${tabIcons[tab]}`}></i>
+						<span style="font-size: 10px;">{tabLabels[tab]}</span>
 					</button>
 				{/each}
 			</div>

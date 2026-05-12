@@ -44,9 +44,11 @@
 </svelte:head>
 
 <main class="app-shell p-3">
-	<div class="d-flex justify-content-between align-items-center mb-3">
-		<h1 class="h4 mb-0">Aufgabe erfassen</h1>
-		<a class="btn btn-outline-secondary rounded-pill" href="/tasks">Zurueck</a>
+	<div class="d-flex align-items-center mb-3">
+		<a class="btn btn-outline-secondary rounded-pill me-3" href="/tasks">
+			<i class="bi bi-arrow-left me-1"></i>Zurück
+		</a>
+		<h1 class="h4 mb-0">Neue Aufgabe</h1>
 	</div>
 
 	<FeedbackMessage {error} />

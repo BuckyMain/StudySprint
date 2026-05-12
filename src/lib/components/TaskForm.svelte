@@ -6,8 +6,10 @@
 		submitLabel = 'Speichern',
 		loading = false,
 		initialValues = {},
-		priorities = ['Hoch', 'Mittel', 'Niedrig']
+		priorities = ['1', '2', '3', '4', '5']
 	} = $props();
+
+	const priorityLabels = { '1': 'Höchste', '2': 'Hoch', '3': 'Mittel', '4': 'Niedrig', '5': 'Niedrigste' };
 
 	const dispatch = createEventDispatcher();
 	const defaultValues = {
@@ -15,7 +17,7 @@
 		module: '',
 		dueDate: '',
 		duration: 25,
-		priority: 'Mittel'
+		priority: '3'
 	};
 
 	let hydrated = false;
@@ -62,27 +64,27 @@
 			</div>
 
 			<div class="col-6">
-				<label class="form-label small" for="task-due-date">Faelligkeit</label>
+				<label class="form-label small" for="task-due-date">Deadline / Abgabefrist</label>
 				<input id="task-due-date" class="form-control rounded-3" type="date" bind:value={form.dueDate} />
 			</div>
 
 			<div class="col-6">
-				<label class="form-label small" for="task-duration">Dauer (Minuten)</label>
+				<label class="form-label small" for="task-duration">Geschätzte Bearbeitungsdauer (Min.)</label>
 				<input
 					id="task-duration"
 					class="form-control rounded-3"
 					type="number"
-					min="10"
+					min="5"
 					step="5"
 					bind:value={form.duration}
 				/>
 			</div>
 
 			<div class="col-6">
-				<label class="form-label small" for="task-priority">Prioritaet</label>
+				<label class="form-label small" for="task-priority">Priorität (1 = höchste)</label>
 				<select id="task-priority" class="form-select rounded-3" bind:value={form.priority}>
-					{#each priorities as priority}
-						<option>{priority}</option>
+					{#each priorities as p}
+						<option value={p}>{p} – {priorityLabels[p]}</option>
 					{/each}
 				</select>
 			</div>
