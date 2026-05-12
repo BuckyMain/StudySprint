@@ -1,17 +1,14 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-import { isAuthenticated, unauthorizedResponse } from '$lib/server/auth';
 
-export async function GET({ cookies }) {
-	if (!isAuthenticated(cookies)) return unauthorizedResponse();
+export async function GET() {
 
 	const db = await getDb();
 	const sessions = await db.collection('sessions').find({}).sort({ startsAt: 1, createdAt: -1 }).toArray();
 	return json(sessions);
 }
 
-export async function POST({ request, cookies }) {
-	if (!isAuthenticated(cookies)) return unauthorizedResponse();
+export async function POST({ request }) {
 
 	const payload = await request.json();
 	const session = {

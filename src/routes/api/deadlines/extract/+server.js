@@ -1,5 +1,4 @@
 import { json } from '@sveltejs/kit';
-import { isAuthenticated, unauthorizedResponse } from '$lib/server/auth';
 
 const DATE_REGEX = /\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b/g;
 
@@ -17,9 +16,7 @@ function moduleFromLine(line) {
 	return 'Allgemein';
 }
 
-export async function POST({ request, cookies }) {
-	if (!isAuthenticated(cookies)) return unauthorizedResponse();
-
+export async function POST({ request }) {
 	const { text } = await request.json();
 	const source = String(text || '').trim();
 	if (!source) return json({ items: [] });

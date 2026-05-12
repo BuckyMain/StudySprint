@@ -1,5 +1,5 @@
 <script>
-	import { onDestroy } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 
 	const tabs = ['home', 'tasks', 'focus', 'progress', 'profile'];
 	const tabLabels = { home: 'Home', tasks: 'Aufgaben', focus: 'Fokus', progress: 'Fortschritt', profile: 'Profil' };
@@ -9,9 +9,6 @@
 	const focusRatings = ['Sehr fokussiert', 'Okay', 'Abgelenkt'];
 
 	let activeTab = $state('home');
-	let isUnlocked = $state(false);
-	let password = $state('');
-	let authError = $state('');
 	let loading = $state(false);
 	let error = $state('');
 
@@ -134,10 +131,6 @@
 			headers: { 'content-type': 'application/json', ...(options.headers || {}) },
 			...options
 		});
-		if (response.status === 401) {
-			isUnlocked = false;
-			throw new Error('Bitte zuerst entsperren.');
-		}
 		if (!response.ok) {
 			let message = 'Fehler bei der Anfrage';
 			try {
@@ -149,23 +142,6 @@
 			throw new Error(message);
 		}
 		return response.json();
-	}
-
-	async function unlockApp() {
-		authError = '';
-		try {
-			await api('/api/auth/unlock', { method: 'POST', body: JSON.stringify({ password }) });
-			isUnlocked = true;
-			password = '';
-			await refreshData();
-		} catch (e) {
-			authError = e.message;
-		}
-	}
-
-	async function logoutApp() {
-		await fetch('/api/auth/logout', { method: 'POST' });
-		isUnlocked = false;
 	}
 
 	async function refreshData() {
@@ -393,6 +369,7 @@
 		}
 	}
 
+	onMount(refreshData);
 	onDestroy(() => stopFocus());
 </script>
 
@@ -408,33 +385,7 @@
 		</div>
 	</header>
 
-	{#if !isUnlocked}
-		<section class="px-3 pb-4">
-			<div class="card rounded-4 border-0 shadow-sm">
-				<div class="card-body">
-					<h2 class="h5 mb-2">App entsperren</h2>
-					<p class="small text-secondary mb-3">
-						Setze optional <code>APP_PASSWORD</code> in deiner .env.
-					</p>
-					<div class="mb-3">
-						<label class="form-label small" for="unlock-password">Passwort</label>
-						<input
-							id="unlock-password"
-							class="form-control rounded-3"
-							type="password"
-							bind:value={password}
-							placeholder="Passwort eingeben"
-						/>
-					</div>
-					{#if authError}
-						<div class="alert alert-danger py-2 small mb-3">{authError}</div>
-					{/if}
-					<button class="btn btn-primary rounded-pill w-100" onclick={unlockApp}>Entsperren</button>
-				</div>
-			</div>
-		</section>
-	{:else}
-		<section class="px-3 pb-4">
+	<section class="px-3 pb-4">
 			{#if loading}
 				<div class="alert alert-info py-2 small">Daten werden geladen...</div>
 			{/if}
@@ -709,7 +660,7 @@
 								{/if}
 							</div>
 							<button class="btn btn-outline-primary rounded-pill w-100 mb-3" onclick={extractDeadlinesWithOcr} disabled={ocrLoading}>
-								{ocrLoading ? 'Analyse läuft...' : 'Datei analysieren (OCR)'}
+								{ocrLoading ? 'Analyse läuft...' : 'Datei analysieren'}
 							</button>
 
 							<div class="mb-2">
@@ -938,9 +889,6 @@
 							<li>Stack: SvelteKit + MongoDB</li>
 							<li>KI-Einsatz: Gemini OCR für Semesterplan-Import</li>
 						</ul>
-						<button class="btn btn-outline-danger rounded-pill w-100 mt-2" onclick={logoutApp}>
-							App sperren
-						</button>
 					</div>
 				</div>
 			{/if}
@@ -961,5 +909,4 @@
 				{/each}
 			</div>
 		</nav>
-	{/if}
 </main>

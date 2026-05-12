@@ -1,15 +1,13 @@
 import { json } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { getDb } from '$lib/server/db';
-import { isAuthenticated, unauthorizedResponse } from '$lib/server/auth';
 
 function parseId(id) {
 	if (!ObjectId.isValid(id)) return null;
 	return new ObjectId(id);
 }
 
-export async function PATCH({ params, request, cookies }) {
-	if (!isAuthenticated(cookies)) return unauthorizedResponse();
+export async function PATCH({ params, request }) {
 
 	const sessionId = parseId(params.id);
 	if (!sessionId) return json({ error: 'Invalid id' }, { status: 400 });
@@ -31,8 +29,7 @@ export async function PATCH({ params, request, cookies }) {
 	return json(session);
 }
 
-export async function DELETE({ params, cookies }) {
-	if (!isAuthenticated(cookies)) return unauthorizedResponse();
+export async function DELETE({ params }) {
 
 	const sessionId = parseId(params.id);
 	if (!sessionId) return json({ error: 'Invalid id' }, { status: 400 });

@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { GoogleGenAI } from '@google/genai';
 import { env } from '$env/dynamic/private';
-import { isAuthenticated, unauthorizedResponse } from '$lib/server/auth';
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
@@ -106,9 +105,7 @@ function parseGeminiError(error) {
 	}
 }
 
-export async function POST({ request, cookies }) {
-	if (!isAuthenticated(cookies)) return unauthorizedResponse();
-
+export async function POST({ request }) {
 	if (!env.GEMINI_API_KEY) {
 		return json({ error: 'GEMINI_API_KEY fehlt in den Umgebungsvariablen.' }, { status: 500 });
 	}
