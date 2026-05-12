@@ -34,6 +34,12 @@
 
 	let deadlineInput = $state('');
 	let extractedDeadlines = $state([]);
+	let semesterplanFileName = $state('');
+	let semesterplanImageBase64 = $state('');
+	let semesterplanMimeType = $state('');
+	let ocrLoading = $state(false);
+	let calendarFillLoading = $state(false);
+	let deadlineSuccess = $state('');
 
 	let selectedTaskId = $state('');
 	let focusSecondsLeft = $state(25 * 60);
@@ -219,14 +225,73 @@
 
 	async function extractDeadlines() {
 		error = '';
+		deadlineSuccess = '';
 		try {
 			const payload = await api('/api/deadlines/extract', {
 				method: 'POST',
 				body: JSON.stringify({ text: deadlineInput })
 			});
 			extractedDeadlines = payload.items || [];
+			deadlineSuccess = extractedDeadlines.length
+				? `${extractedDeadlines.length} Deadline(s) erkannt.`
+				: 'Keine Deadline erkannt.';
 		} catch (extractError) {
 			error = extractError.message;
+		}
+	}
+
+	function handleSemesterplanFile(event) {
+		error = '';
+		deadlineSuccess = '';
+		const file = event.target.files?.[0];
+		if (!file) {
+			semesterplanFileName = '';
+			semesterplanImageBase64 = '';
+			semesterplanMimeType = '';
+			return;
+		}
+		const reader = new FileReader();
+		reader.onload = () => {
+			const result = String(reader.result || '');
+			const match = result.match(/^data:(.*?);base64,(.*)$/);
+			if (!match) {
+				error = 'Datei konnte nicht gelesen werden.';
+				return;
+			}
+			semesterplanMimeType = match[1];
+			semesterplanImageBase64 = match[2];
+			semesterplanFileName = file.name;
+		};
+		reader.onerror = () => {
+			error = 'Datei konnte nicht gelesen werden.';
+		};
+		reader.readAsDataURL(file);
+	}
+
+	async function extractDeadlinesWithOcr() {
+		error = '';
+		deadlineSuccess = '';
+		if (!semesterplanImageBase64) {
+			error = 'Bitte zuerst ein Semesterplan-Bild auswaehlen.';
+			return;
+		}
+		ocrLoading = true;
+		try {
+			const payload = await api('/api/deadlines/ocr', {
+				method: 'POST',
+				body: JSON.stringify({
+					imageBase64: semesterplanImageBase64,
+					mimeType: semesterplanMimeType
+				})
+			});
+			extractedDeadlines = payload.items || [];
+			deadlineSuccess = extractedDeadlines.length
+				? `${extractedDeadlines.length} Deadline(s) per OCR erkannt.`
+				: 'OCR abgeschlossen, aber keine Deadline gefunden.';
+		} catch (ocrError) {
+			error = ocrError.message;
+		} finally {
+			ocrLoading = false;
 		}
 	}
 
@@ -245,6 +310,47 @@
 			await refreshData();
 		} catch (addError) {
 			error = addError.message;
+		}
+	}
+
+
+	async function autoFillCalendarFromDeadlines() {
+		error = '';
+		deadlineSuccess = '';
+		if (extractedDeadlines.length === 0) {
+			error = 'Keine Deadlines vorhanden.';
+			return;
+		}
+		calendarFillLoading = true;
+		try {
+			const existing = new Set(sessions.map((session) => `${session.topic}|${session.startsAt || ''}`));
+			let createdCount = 0;
+			for (const item of extractedDeadlines) {
+				const startsAt = `${item.dueDate}T09:00`;
+				const topic = `Deadline Vorbereitung: ${item.title}`;
+				const key = `${topic}|${startsAt}`;
+				if (existing.has(key)) continue;
+				await api('/api/sessions', {
+					method: 'POST',
+					body: JSON.stringify({
+						topic,
+						module: item.module,
+						startsAt,
+						duration: 45,
+						status: 'geplant'
+					})
+				});
+				existing.add(key);
+				createdCount += 1;
+			}
+			await refreshData();
+			deadlineSuccess = createdCount
+				? `${createdCount} Session(s) automatisch in den Kalender eingetragen.`
+				: 'Keine neuen Sessions angelegt (bereits vorhanden).';
+		} catch (calendarError) {
+			error = calendarError.message;
+		} finally {
+			calendarFillLoading = false;
 		}
 	}
 
@@ -471,10 +577,28 @@
 
 				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
-						<h3 class="h6 mb-2">Semesterplan Import (AI/OCR Vorbereitung)</h3>
+						<h3 class="h6 mb-2">Semesterplan Import (Gemini OCR)</h3>
 						<p class="small text-secondary mb-2">
 							Text aus PDF einfügen. Deadlines werden automatisch erkannt und als Aufgaben übernommen.
 						</p>
+						<div class="mb-2">
+							<label class="form-label small" for="semesterplan-file">Semesterplan Datei (Bild/PDF)</label>
+							<input
+								id="semesterplan-file"
+								class="form-control rounded-3"
+								type="file"
+								accept="image/*,application/pdf"
+								onchange={handleSemesterplanFile}
+							/>
+							{#if semesterplanFileName}
+								<p class="small text-secondary mt-1 mb-0">Ausgewaehlt: {semesterplanFileName}</p>
+							{/if}
+						</div>
+						<div class="d-grid gap-2 mb-2">
+							<button class="btn btn-outline-primary rounded-pill w-100" onclick={extractDeadlinesWithOcr} disabled={ocrLoading}>
+								{ocrLoading ? 'OCR laeuft...' : 'OCR aus Datei starten'}
+							</button>
+						</div>
 						<textarea
 							class="form-control rounded-3 mb-2"
 							rows="3"
@@ -484,7 +608,16 @@
 						<button class="btn btn-outline-primary rounded-pill w-100 mb-2" onclick={extractDeadlines}>
 							Deadlines extrahieren
 						</button>
+						{#if deadlineSuccess}
+							<div class="alert alert-success py-2 small">{deadlineSuccess}</div>
+						{/if}
 						{#if extractedDeadlines.length > 0}
+							<button
+								class="btn btn-success rounded-pill w-100 mb-2"
+								onclick={autoFillCalendarFromDeadlines}
+								disabled={calendarFillLoading}>
+								{calendarFillLoading ? 'Kalender wird befuellt...' : 'Kalender automatisch befuellen'}
+							</button>
 							<div class="small">
 								{#each extractedDeadlines as item}
 									<div class="border rounded-3 p-2 mb-2">
