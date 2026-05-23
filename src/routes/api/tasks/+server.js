@@ -17,6 +17,7 @@ export async function POST({ request }) {
 		duration: Number(payload.duration || 25),
 		priority: payload.priority || 'Mittel',
 		status: payload.status || 'offen',
+		notes: String(payload.notes || '').trim(),
 		createdAt: new Date(),
 		updatedAt: new Date()
 	};

@@ -5,7 +5,7 @@
 body {
   margin: 0;
   background: linear-gradient(180deg, #f8f9ff 0%, #eef2ff 100%);
-  color: #1f2937;
+  color: var(--bs-body-color);
   font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -50,4 +50,47 @@ body {
 
 .module-progress {
   height: 10px;
+  border-radius: 5px;
+}
+
+/* Module color dot */
+.module-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Module colored left border on task cards */
+.module-border {
+  border-left: 4px solid var(--module-color, #6b7280) !important;
+}
+
+/* Dark mode overrides via Bootstrap 5.3 data-bs-theme */
+[data-bs-theme="dark"] body {
+  background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+}
+
+/* Bootstrap's .text-secondary uses --bs-secondary-rgb which doesn't adapt to dark mode –
+   override it to use the adaptive secondary text color instead */
+[data-bs-theme="dark"] .text-secondary {
+  color: var(--bs-secondary-color) !important;
+}
+
+[data-bs-theme="dark"] .form-text {
+  color: var(--bs-secondary-color) !important;
+}
+
+[data-bs-theme="dark"] .hero-gradient {
+  background: linear-gradient(135deg, #1d4ed8 0%, #5b21b6 100%);
+}
+
+[data-bs-theme="dark"] .focus-timer {
+  border-color: #3730a3;
+  background: #1e293b;
+}
+
+[data-bs-theme="dark"] .metric-card {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }

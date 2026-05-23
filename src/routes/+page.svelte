@@ -8,6 +8,13 @@
 	const priorityLabels = { '1': 'Höchste', '2': 'Hoch', '3': 'Mittel', '4': 'Niedrig', '5': 'Niedrigste' };
 	const focusRatings = ['Sehr fokussiert', 'Okay', 'Abgelenkt'];
 
+	// Module color palette
+	const MODULE_COLORS = [
+		'#2563eb', '#7c3aed', '#db2777', '#059669',
+		'#d97706', '#0891b2', '#dc2626', '#65a30d',
+		'#6366f1', '#f59e0b', '#0284c7', '#9333ea'
+	];
+
 	let activeTab = $state('home');
 	let loading = $state(false);
 	let error = $state('');
@@ -15,16 +22,20 @@
 	let tasks = $state([]);
 	let reflections = $state([]);
 
+	// User settings (loaded from localStorage in onMount)
+	let userName = $state('');
+	let darkMode = $state(false);
+
 	// Tasks sub-view: 'list' | 'new' | 'import' | 'edit'
 	let taskSubView = $state('list');
 	let taskSortBy = $state('priority');
 	let taskFilterModule = $state('');
 	let showOnlyOpen = $state(false);
 
-	let taskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3' });
+	let taskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3', notes: '' });
 
 	let editingTaskId = $state('');
-	let editTaskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3' });
+	let editTaskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3', notes: '' });
 
 	let deadlineInput = $state('');
 	let extractedDeadlines = $state([]);
@@ -35,13 +46,18 @@
 	let semesterplanMimeType = $state('');
 	let ocrLoading = $state(false);
 	let deadlineSuccess = $state('');
+	let adoptingAll = $state(false);
 
 	let selectedTaskId = $state('');
 	let focusSecondsLeft = $state(25 * 60);
 	let isFocusRunning = $state(false);
 	let focusTimerHandle = null;
+	let focusHasStarted = $state(false);
 	let reflectionRating = $state('Okay');
 	let reflectionNote = $state('');
+
+	// Progress filter
+	let progressFilterModule = $state('');
 
 	const completedTasks = $derived(tasks.filter((t) => t.status === 'erledigt'));
 	const openTasks = $derived(tasks.filter((t) => t.status !== 'erledigt'));
@@ -117,6 +133,28 @@
 
 	const maxWeeklyCount = $derived(Math.max(1, ...weeklyData.map((d) => d.count)));
 
+	// Per-module stats for progress tab
+	const moduleStats = $derived.by(() => {
+		return modules.map((mod, idx) => {
+			const modTasks = tasks.filter((t) => t.module === mod);
+			const modDone = modTasks.filter((t) => t.status === 'erledigt').length;
+			const pct = modTasks.length ? Math.round((modDone / modTasks.length) * 100) : 0;
+			return { mod, total: modTasks.length, done: modDone, pct, color: MODULE_COLORS[idx % MODULE_COLORS.length] };
+		});
+	});
+
+	const filteredCompletedTasks = $derived.by(() => {
+		if (!progressFilterModule) return completedTasks;
+		return completedTasks.filter((t) => t.module === progressFilterModule);
+	});
+
+	function getModuleColor(mod) {
+		if (!mod) return '#6b7280';
+		const idx = modules.indexOf(mod);
+		if (idx === -1) return '#6b7280';
+		return MODULE_COLORS[idx % MODULE_COLORS.length];
+	}
+
 	function priorityBadgeClass(p) {
 		const n = Number(p);
 		if (n === 1) return 'text-bg-danger';
@@ -124,6 +162,18 @@
 		if (n === 3) return 'text-bg-primary';
 		if (n === 4) return 'text-bg-info text-dark';
 		return 'text-bg-secondary';
+	}
+
+	function statusBadgeClass(status) {
+		if (status === 'erledigt') return 'text-bg-success';
+		if (status === 'in Bearbeitung') return 'text-bg-warning text-dark';
+		return 'text-bg-light text-dark border';
+	}
+
+	function statusLabel(status) {
+		if (status === 'erledigt') return 'Erledigt';
+		if (status === 'in Bearbeitung') return 'In Bearbeitung';
+		return 'Offen';
 	}
 
 	async function api(path, options = {}) {
@@ -166,7 +216,7 @@
 		error = '';
 		try {
 			await api('/api/tasks', { method: 'POST', body: JSON.stringify(taskForm) });
-			taskForm = { title: '', module: '', dueDate: '', duration: 25, priority: '3' };
+			taskForm = { title: '', module: '', dueDate: '', duration: 25, priority: '3', notes: '' };
 			taskSubView = 'list';
 			await refreshData();
 		} catch (e) {
@@ -181,7 +231,8 @@
 			module: task.module || '',
 			dueDate: task.dueDate || '',
 			duration: task.duration || 25,
-			priority: task.priority || '3'
+			priority: task.priority || '3',
+			notes: task.notes || ''
 		};
 		taskSubView = 'edit';
 	}
@@ -296,7 +347,7 @@
 		editingDeadlineIdx = -1;
 	}
 
-	async function addDeadlineAsTask(item) {
+	async function addDeadlineAsTask(item, idx) {
 		try {
 			await api('/api/tasks', {
 				method: 'POST',
@@ -308,6 +359,8 @@
 					priority: item.priority || '3'
 				})
 			});
+			// Remove adopted item from the list
+			extractedDeadlines = extractedDeadlines.filter((_, i) => i !== idx);
 			await refreshData();
 			deadlineSuccess = `"${item.title}" wurde zur Aufgabenliste hinzugefügt.`;
 		} catch (e) {
@@ -315,22 +368,72 @@
 		}
 	}
 
+	async function addAllDeadlinesAsTasks() {
+		if (extractedDeadlines.length === 0) return;
+		adoptingAll = true;
+		error = '';
+		deadlineSuccess = '';
+		const items = [...extractedDeadlines];
+		let added = 0;
+		for (const item of items) {
+			try {
+				await api('/api/tasks', {
+					method: 'POST',
+					body: JSON.stringify({
+						title: item.title,
+						module: item.module,
+						dueDate: item.dueDate,
+						duration: 45,
+						priority: item.priority || '3'
+					})
+				});
+				added++;
+			} catch (e) {
+				// Continue with remaining items
+			}
+		}
+		extractedDeadlines = [];
+		await refreshData();
+		deadlineSuccess = `${added} Aufgabe(n) übernommen.`;
+		adoptingAll = false;
+	}
+
 	function removeDeadline(idx) {
 		extractedDeadlines = extractedDeadlines.filter((_, i) => i !== idx);
+	}
+
+	function removeAllDeadlines() {
+		extractedDeadlines = [];
+		deadlineSuccess = '';
 	}
 
 	function startFocus() {
 		if (!selectedTask) { error = 'Bitte zuerst eine Aufgabe auswählen.'; return; }
 		if (isFocusRunning) return;
 		isFocusRunning = true;
+		focusHasStarted = true;
 		focusTimerHandle = setInterval(() => {
 			if (focusSecondsLeft <= 1) { stopFocus(); focusSecondsLeft = 0; return; }
 			focusSecondsLeft -= 1;
 		}, 1000);
 	}
 
-	function pauseFocus() { if (isFocusRunning) stopFocus(); }
-	function resetFocus() { stopFocus(); focusSecondsLeft = 25 * 60; }
+	async function pauseFocus() {
+		if (isFocusRunning) {
+			stopFocus();
+			// Set to "in Bearbeitung" when paused mid-session
+			if (selectedTask && focusHasStarted && focusSecondsLeft < 25 * 60) {
+				await setTaskStatus(selectedTask, 'in Bearbeitung');
+			}
+		}
+	}
+
+	function resetFocus() {
+		stopFocus();
+		focusSecondsLeft = 25 * 60;
+		focusHasStarted = false;
+	}
+
 	function stopFocus() {
 		isFocusRunning = false;
 		if (focusTimerHandle) { clearInterval(focusTimerHandle); focusTimerHandle = null; }
@@ -369,7 +472,22 @@
 		}
 	}
 
-	onMount(refreshData);
+	function saveSettings() {
+		localStorage.setItem('userName', userName);
+		localStorage.setItem('darkMode', String(darkMode));
+	}
+
+	$effect(() => {
+		if (typeof document !== 'undefined') {
+			document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
+		}
+	});
+
+	onMount(() => {
+		userName = localStorage.getItem('userName') || '';
+		darkMode = localStorage.getItem('darkMode') === 'true';
+		refreshData();
+	});
 	onDestroy(() => stopFocus());
 </script>
 
@@ -381,7 +499,7 @@
 <main class="app-shell">
 	<header class="p-3 pb-2">
 		<div class="hero-gradient rounded-4 p-3 shadow-sm">
-			<h1 class="h4 mb-0">StudySprint</h1>
+			<h1 class="h4 mb-0">StudySprint{userName ? ` · Hallo ${userName}` : ''}</h1>
 		</div>
 	</header>
 
@@ -420,6 +538,7 @@
 							<p class="text-secondary small mb-1">Nächste Deadline</p>
 							<p class="fw-semibold mb-0">{nearestDeadline.title}</p>
 							<p class="small text-secondary mb-0">
+								<span class="module-dot me-1" style="background-color: {getModuleColor(nearestDeadline.module)};"></span>
 								{nearestDeadline.module} · fällig {formatDate(nearestDeadline.dueDate)}
 							</p>
 						</div>
@@ -437,6 +556,7 @@
 								<p class="fw-semibold mb-0">{highestPriorityTask.title}</p>
 							</div>
 							<p class="small text-secondary mb-0">
+								<span class="module-dot me-1" style="background-color: {getModuleColor(highestPriorityTask.module)};"></span>
 								{highestPriorityTask.module}
 								{highestPriorityTask.dueDate ? ` · Deadline ${formatDate(highestPriorityTask.dueDate)}` : ''}
 							</p>
@@ -457,7 +577,10 @@
 									</span>
 									<div class="flex-grow-1 overflow-hidden">
 										<p class="mb-0 fw-semibold text-truncate small">{task.title}</p>
-										<p class="mb-0 text-secondary" style="font-size: 11px;">{task.module} · {formatDate(task.dueDate)}</p>
+										<p class="mb-0 text-secondary" style="font-size: 11px;">
+											<span class="module-dot me-1" style="background-color: {getModuleColor(task.module)};"></span>
+											{task.module} · {formatDate(task.dueDate)}
+										</p>
 									</div>
 								</div>
 							{/each}
@@ -505,22 +628,32 @@
 						<p class="small text-secondary">Keine Aufgaben gefunden.</p>
 					{:else}
 						{#each filteredSortedTasks as task}
-							<div class="card rounded-4 border-0 shadow-sm mb-2">
+							<div
+								class="card rounded-4 border-0 shadow-sm mb-2 module-border"
+								style="--module-color: {getModuleColor(task.module)};"
+							>
 								<div class="card-body">
 									<div class="d-flex justify-content-between align-items-start">
 										<div class="flex-grow-1 me-2">
-											<div class="d-flex align-items-center gap-2 mb-1">
+											<div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
 												<span class={`badge ${priorityBadgeClass(task.priority)}`}>Prio {task.priority}</span>
-												<span class={`badge ${task.status === 'erledigt' ? 'text-bg-success' : 'text-bg-light text-dark border'}`}>
-													{task.status === 'erledigt' ? 'Erledigt' : 'Offen'}
+												<span class={`badge ${statusBadgeClass(task.status)}`}>
+													{statusLabel(task.status)}
 												</span>
+												<span
+													class="badge"
+													style="background-color: {getModuleColor(task.module)}; color: white;"
+												>{task.module}</span>
 											</div>
 											<p class="fw-semibold mb-1">{task.title}</p>
 											<p class="small text-secondary mb-0">
-												{task.module}
-												{task.dueDate ? ` · Deadline ${formatDate(task.dueDate)}` : ''}
-												· {task.duration} min
+												{task.dueDate ? `Deadline ${formatDate(task.dueDate)} · ` : ''}{task.duration} min
 											</p>
+											{#if task.notes}
+												<p class="small text-secondary mb-0 mt-1 fst-italic">
+													<i class="bi bi-sticky me-1"></i>{task.notes}
+												</p>
+											{/if}
 										</div>
 									</div>
 									<div class="d-flex gap-2 mt-2 flex-wrap">
@@ -560,14 +693,26 @@
 								</div>
 								<div class="col-6">
 									<label class="form-label small" for="new-module">Modul</label>
-									<input id="new-module" class="form-control rounded-3" bind:value={taskForm.module} placeholder="Prototyping" />
+									<input
+										id="new-module"
+										class="form-control rounded-3"
+										list="modules-datalist"
+										bind:value={taskForm.module}
+										placeholder="Prototyping"
+										autocomplete="off"
+									/>
+									<datalist id="modules-datalist">
+										{#each modules as mod}
+											<option value={mod}></option>
+										{/each}
+									</datalist>
 								</div>
 								<div class="col-6">
 									<label class="form-label small" for="new-due">Deadline / Abgabefrist</label>
 									<input id="new-due" class="form-control rounded-3" type="date" bind:value={taskForm.dueDate} />
 								</div>
 								<div class="col-6">
-									<label class="form-label small" for="new-duration">Geschätzte Bearbeitungsdauer (Min.)</label>
+									<label class="form-label small" for="new-duration">Geschätzte Dauer (Min.)</label>
 									<input id="new-duration" class="form-control rounded-3" type="number" min="5" step="5" bind:value={taskForm.duration} />
 								</div>
 								<div class="col-6">
@@ -577,6 +722,16 @@
 											<option value={p}>{p} – {priorityLabels[p]}</option>
 										{/each}
 									</select>
+								</div>
+								<div class="col-12">
+									<label class="form-label small" for="new-notes">Notiz (optional)</label>
+									<textarea
+										id="new-notes"
+										class="form-control rounded-3"
+										rows="2"
+										placeholder="Hinweise, Links, Kontext..."
+										bind:value={taskForm.notes}
+									></textarea>
 								</div>
 								<div class="col-12 mt-2">
 									<button class="btn btn-primary rounded-pill w-100" type="submit">Aufgabe speichern</button>
@@ -603,14 +758,25 @@
 								</div>
 								<div class="col-6">
 									<label class="form-label small" for="edit-module">Modul</label>
-									<input id="edit-module" class="form-control rounded-3" bind:value={editTaskForm.module} />
+									<input
+										id="edit-module"
+										class="form-control rounded-3"
+										list="modules-datalist-edit"
+										bind:value={editTaskForm.module}
+										autocomplete="off"
+									/>
+									<datalist id="modules-datalist-edit">
+										{#each modules as mod}
+											<option value={mod}></option>
+										{/each}
+									</datalist>
 								</div>
 								<div class="col-6">
 									<label class="form-label small" for="edit-due">Deadline / Abgabefrist</label>
 									<input id="edit-due" class="form-control rounded-3" type="date" bind:value={editTaskForm.dueDate} />
 								</div>
 								<div class="col-6">
-									<label class="form-label small" for="edit-duration">Geschätzte Bearbeitungsdauer (Min.)</label>
+									<label class="form-label small" for="edit-duration">Geschätzte Dauer (Min.)</label>
 									<input id="edit-duration" class="form-control rounded-3" type="number" min="5" step="5" bind:value={editTaskForm.duration} />
 								</div>
 								<div class="col-6">
@@ -620,6 +786,16 @@
 											<option value={p}>{p} – {priorityLabels[p]}</option>
 										{/each}
 									</select>
+								</div>
+								<div class="col-12">
+									<label class="form-label small" for="edit-notes">Notiz (optional)</label>
+									<textarea
+										id="edit-notes"
+										class="form-control rounded-3"
+										rows="2"
+										placeholder="Hinweise, Links, Kontext..."
+										bind:value={editTaskForm.notes}
+									></textarea>
 								</div>
 								<div class="col-12 mt-2">
 									<button class="btn btn-primary rounded-pill w-100" type="submit">Änderungen speichern</button>
@@ -684,7 +860,21 @@
 					</div>
 
 					{#if extractedDeadlines.length > 0}
-						<h3 class="h6 mb-2">Erkannte Einträge – bitte prüfen und übernehmen</h3>
+						<div class="d-flex align-items-center justify-content-between mb-2">
+							<h3 class="h6 mb-0">Erkannte Einträge – bitte prüfen und übernehmen</h3>
+						</div>
+						<div class="d-flex gap-2 mb-3">
+							<button
+								class="btn btn-sm btn-success rounded-pill flex-grow-1"
+								onclick={addAllDeadlinesAsTasks}
+								disabled={adoptingAll}
+							>
+								<i class="bi bi-check-all me-1"></i>{adoptingAll ? 'Wird übernommen...' : 'Alle übernehmen'}
+							</button>
+							<button class="btn btn-sm btn-outline-danger rounded-pill flex-grow-1" onclick={removeAllDeadlines}>
+								<i class="bi bi-trash me-1"></i>Alle entfernen
+							</button>
+						</div>
 						{#each extractedDeadlines as item, idx}
 							<div class="card rounded-4 border-0 shadow-sm mb-2">
 								<div class="card-body">
@@ -722,7 +912,7 @@
 											· Prio {item.priority || '3'}
 										</p>
 										<div class="d-flex gap-2 flex-wrap">
-											<button class="btn btn-sm btn-success rounded-pill" onclick={() => addDeadlineAsTask(item)}>
+											<button class="btn btn-sm btn-success rounded-pill" onclick={() => addDeadlineAsTask(item, idx)}>
 												Zur Aufgabenliste hinzufügen
 											</button>
 											<button class="btn btn-sm btn-outline-primary rounded-pill" onclick={() => startEditDeadline(idx)}>
@@ -750,10 +940,28 @@
 							<select id="selected-task" class="form-select rounded-3" bind:value={selectedTaskId}>
 								<option value="">Bitte wählen</option>
 								{#each openTasks as task}
-									<option value={task._id}>{task.title}</option>
+									<option value={task._id}>
+										{task.title}{task.status === 'in Bearbeitung' ? ' ▶ In Bearbeitung' : ''}
+									</option>
 								{/each}
 							</select>
 						</div>
+						{#if selectedTask}
+							<div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+								<span
+									class="badge"
+									style="background-color: {getModuleColor(selectedTask.module)}; color: white;"
+								>{selectedTask.module}</span>
+								<span class={`badge ${statusBadgeClass(selectedTask.status)}`}>
+									{statusLabel(selectedTask.status)}
+								</span>
+							</div>
+							{#if selectedTask.notes}
+								<div class="alert alert-secondary py-2 text-start small mb-2">
+									<i class="bi bi-sticky me-1"></i><strong>Notiz:</strong> {selectedTask.notes}
+								</div>
+							{/if}
+						{/if}
 						<div class="focus-timer mb-3">
 							<div>
 								<p class="text-secondary small mb-1">Verbleibend</p>
@@ -840,21 +1048,63 @@
 					</div>
 				</div>
 
-				<!-- Completed tasks with details -->
+				<!-- Module progress -->
+				{#if moduleStats.length > 0}
+					<div class="card rounded-4 border-0 shadow-sm mb-3">
+						<div class="card-body">
+							<h3 class="h6 mb-3">Fortschritt nach Modul</h3>
+							{#each moduleStats as stat}
+								<div class="mb-3">
+									<div class="d-flex justify-content-between align-items-center mb-1">
+										<div class="d-flex align-items-center gap-2">
+											<span class="module-dot" style="background-color: {stat.color};"></span>
+											<span class="small fw-semibold">{stat.mod}</span>
+										</div>
+										<span class="small text-secondary">{stat.done}/{stat.total} · {stat.pct}%</span>
+									</div>
+									<div class="progress module-progress">
+										<div
+											class="progress-bar"
+											style="width: {stat.pct}%; background-color: {stat.color};"
+											role="progressbar"
+											aria-valuenow={stat.pct}
+											aria-valuemin="0"
+											aria-valuemax="100"
+										></div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Completed tasks filter + list -->
 				<div class="card rounded-4 border-0 shadow-sm">
 					<div class="card-body">
-						<h3 class="h6 mb-3">Abgeschlossene Aufgaben</h3>
-						{#if completedTasks.length === 0}
+						<div class="d-flex justify-content-between align-items-center mb-3">
+							<h3 class="h6 mb-0">Abgeschlossene Aufgaben</h3>
+							<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={progressFilterModule}>
+								<option value="">Alle Module</option>
+								{#each modules as mod}
+									<option value={mod}>{mod}</option>
+								{/each}
+							</select>
+						</div>
+						{#if filteredCompletedTasks.length === 0}
 							<p class="small text-secondary mb-0">Noch keine Aufgaben abgeschlossen.</p>
 						{:else}
-							{#each completedTasks as task}
+							{#each filteredCompletedTasks as task}
 								{@const ref = reflections.find((r) => r.taskId === task._id)}
 								{@const diff = ref ? Number(ref.focusMinutes) - Number(task.duration) : null}
 								<div class="border-bottom pb-2 mb-2">
 									<div class="d-flex align-items-start justify-content-between">
 										<div>
-											<div class="d-flex align-items-center gap-2 mb-1">
+											<div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
 												<span class={`badge ${priorityBadgeClass(task.priority)}`}>Prio {task.priority}</span>
+												<span
+													class="badge"
+													style="background-color: {getModuleColor(task.module)}; color: white;"
+												>{task.module}</span>
 												{#if diff !== null}
 													<span class={`badge ${diff > 10 ? 'text-bg-danger' : diff < -10 ? 'text-bg-success' : 'text-bg-secondary'}`}>
 														{diff > 0 ? '+' : ''}{diff} min
@@ -862,7 +1112,6 @@
 												{/if}
 											</div>
 											<p class="fw-semibold mb-0 small">{task.title}</p>
-											<p class="text-secondary mb-0" style="font-size: 11px;">{task.module}</p>
 										</div>
 										<div class="text-end flex-shrink-0 ms-2">
 											<p class="small mb-0 text-secondary">Schätzung: {task.duration} min</p>
@@ -881,11 +1130,52 @@
 
 			<!-- ==================== PROFILE ==================== -->
 			{#if activeTab === 'profile'}
+				<div class="card rounded-4 border-0 shadow-sm mb-3">
+					<div class="card-body">
+						<h2 class="h5 mb-3">Einstellungen</h2>
+
+						<div class="mb-3">
+							<label class="form-label small fw-semibold" for="setting-username">Dein Name</label>
+							<input
+								id="setting-username"
+								class="form-control rounded-3"
+								placeholder="z.B. Manuel"
+								bind:value={userName}
+							/>
+						</div>
+
+						<div class="mb-4">
+							<div class="d-flex align-items-center justify-content-between">
+								<div>
+									<p class="fw-semibold small mb-0">Dark Mode</p>
+									<p class="text-secondary" style="font-size: 12px; margin-bottom: 0;">Dunkles Erscheinungsbild</p>
+								</div>
+								<div class="form-check form-switch mb-0">
+									<input
+										class="form-check-input"
+										type="checkbox"
+										role="switch"
+										id="dark-mode-toggle"
+										bind:checked={darkMode}
+										onchange={saveSettings}
+										style="width: 2.5em; height: 1.25em;"
+									/>
+									<label class="form-check-label visually-hidden" for="dark-mode-toggle">Dark Mode</label>
+								</div>
+							</div>
+						</div>
+
+						<button class="btn btn-primary rounded-pill w-100" onclick={saveSettings}>
+							<i class="bi bi-check-lg me-1"></i>Einstellungen speichern
+						</button>
+					</div>
+				</div>
+
 				<div class="card rounded-4 border-0 shadow-sm">
 					<div class="card-body">
-						<h2 class="h5 mb-3">Profil & Einstellungen</h2>
+						<h3 class="h6 mb-2">Über StudySprint</h3>
 						<p class="small text-secondary mb-2">Prototyp für Einzelarbeit (ZHAW Prototyping Modul).</p>
-						<ul class="small text-secondary">
+						<ul class="small text-secondary mb-0">
 							<li>Stack: SvelteKit + MongoDB</li>
 							<li>KI-Einsatz: Gemini OCR für Semesterplan-Import</li>
 						</ul>

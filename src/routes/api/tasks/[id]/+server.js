@@ -36,6 +36,7 @@ export async function PATCH({ params, request }) {
 	if (payload.duration !== undefined) update.duration = Number(payload.duration);
 	if (payload.priority !== undefined) update.priority = payload.priority;
 	if (payload.status !== undefined) update.status = payload.status;
+	if (payload.notes !== undefined) update.notes = String(payload.notes).trim();
 
 	const db = await getDb();
 	await db.collection('tasks').updateOne({ _id: taskId }, { $set: update });
