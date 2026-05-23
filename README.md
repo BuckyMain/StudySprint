@@ -1,20 +1,20 @@
-# Projektdokumentation – StudySprint
+# Projektdokumentation - StudySprint
 
 ## Inhaltsverzeichnis
 
 1. [Ausgangslage](#1-ausgangslage)
 2. [Lösungsidee](#2-lösungsidee)
 3. [Vorgehen & Artefakte](#3-vorgehen--artefakte)
-   1. [Understand & Define](#31-understand--define)
-   2. [Sketch](#32-sketch)
-   3. [Decide](#33-decide)
-   4. [Prototype](#34-prototype)
-   5. [Validate](#35-validate)
-4. [Erweiterungen](#4-erweiterungen)
-5. [Projektorganisation](#5-projektorganisation)
+    1. [Understand & Define](#31-understand--define)
+    2. [Sketch](#32-sketch)
+    3. [Decide](#33-decide)
+    4. [Prototype](#34-prototype)
+    5. [Validate](#35-validate)
+4. [Erweiterungen](#4-erweiterungen-optional)
+5. [Projektorganisation](#5-projektorganisation-optional)
 6. [KI-Deklaration](#6-ki-deklaration)
+7. [Anhang](#7-anhang-optional)
 
----
 
 ## 1. Ausgangslage
 
@@ -25,8 +25,8 @@ Viele bestehende Tools decken nur Teilaspekte ab. Kalender-Apps helfen bei der T
 - **Problem:** Studierende haben häufig Schwierigkeiten, ihre Lernzeit realistisch einzuschätzen, Lernaufgaben sinnvoll zu priorisieren, konzentrierte Lernphasen ohne Ablenkung durchzuführen, ihren Fortschritt sichtbar zu machen und aus vergangenen Lernsessions Verbesserungen abzuleiten. Dies führt zu ineffizientem Lernen, höherem Stresslevel und geringerer Zufriedenheit mit dem eigenen Lernverhalten.
 - **Ziele:** Mit **StudySprint** soll ein digitaler Prototyp entstehen, der Studierende dabei unterstützt, Lernziele klar zu formulieren, Lernsessions einfach zu planen, fokussiert zu arbeiten, Lernfortschritt sichtbar zu machen und nach einer Session kurz zu reflektieren. Das angestrebte Ergebnis ist eine benutzerfreundliche, interaktive App mit klarem Workflow.
 - **Primäre Zielgruppe:** Studierende an Hochschulen, die mehrere Module gleichzeitig organisieren müssen, unter Zeitdruck stehen und ihre Lernphasen strukturierter gestalten möchten.
+- **Weitere Stakeholder [Optional]:** _[keine weiteren Stakeholder im Mindestumfang definiert]_
 
----
 
 ## 2. Lösungsidee
 
@@ -35,20 +35,12 @@ Viele bestehende Tools decken nur Teilaspekte ab. Kalender-Apps helfen bei der T
 Der zentrale Lernworkflow lautet: **Planung → Fokus → Fortschritt → Reflexion**
 
 - **Kernfunktionalität:** Lernaufgaben anlegen und verwalten, eine Fokus-Session mit Timer starten, Fortschritt erfassen, eine kurze Reflexion festhalten und eine Übersicht über offene Aufgaben sowie absolvierte Sessions anzeigen.
-- **Abgrenzung:** Nicht Teil des Mindestumfangs sind Integrationen mit externen Kalendern, Push-Benachrichtigungen oder kollaborative Lernfunktionen.
-
-### Implementierte Seiten / Screens
-
-| Route | Beschreibung |
-|---|---|
-| `/` | Dashboard mit Tab-Navigation (Home, Aufgaben, Fokus, Fortschritt, Profil) |
-| `/tasks` | Aufgaben-Übersicht mit Filter- und Sortierfunktion |
-| `/tasks/new` | Neue Aufgabe erfassen |
-| `/tasks/[id]/edit` | Bestehende Aufgabe bearbeiten |
-
----
+- **Annahmen [Optional]:** Die wichtigste Hypothese ist, dass ein integrierter Workflow (Planung + Fokus + Reflexion in einer App) mehr Mehrwert bietet als einzelne Speziallösungen. Weitere Annahme: Studierende sind bereit, kurze Reflexionen nach Sessions einzutragen, wenn der Aufwand minimal ist.
+- **Abgrenzung [Optional]:** Nicht Teil des Mindestumfangs sind Integrationen mit externen Kalendern, Push-Benachrichtigungen oder kollaborative Lernfunktionen.
 
 ## 3. Vorgehen & Artefakte
+
+Die Durchführung erfolgt phasenbasiert; dokumentieren Sie die wichtigsten Ergebnisse je Phase.
 
 ### 3.1 Understand & Define
 
@@ -58,32 +50,32 @@ Der zentrale Lernworkflow lautet: **Planung → Fokus → Fortschritt → Reflex
   - Das Kernproblem ist nicht nur fehlende Planung, sondern die fehlende Verbindung zwischen Planung, Durchführung und Reflexion.
   - Bestehende Productivity-Tools sind oft zu generisch oder zu komplex.
   - Ein reduzierter, studierendengerechter MVP bietet mehr Mehrwert als eine überladene Lösung.
-
-#### How-Might-We-Fragen
-
-- Wie könnten wir Studierenden helfen, ihre Lernzeit realistischer zu planen?
-- Wie könnten wir Ablenkung während Lernphasen reduzieren?
-- Wie könnten wir Lernfortschritte sichtbar machen, damit Motivation und Selbstorganisation steigen?
+  - **How-Might-We-Fragen:** Wie könnten wir Studierenden helfen, ihre Lernzeit realistischer zu planen? Wie könnten wir Ablenkung während Lernphasen reduzieren? Wie könnten wir Lernfortschritte sichtbar machen, damit Motivation und Selbstorganisation steigen?
 
 ### 3.2 Sketch
 
-Es wurden drei grobe Lösungsrichtungen identifiziert:
-
-- **Variante A: Fokus auf Planung** – Aufgabenverwaltung und Session-Planung stehen im Zentrum.
-- **Variante B: Fokus auf Fokusmodus** – Timer und konzentriertes Arbeiten stehen im Zentrum.
-- **Variante C: Integrierter Lernworkflow** – Planung, Fokusmodus, Fortschritt und Reflexion werden in einem Ablauf kombiniert.
+- **Variantenüberblick:** Es wurden drei grobe Lösungsrichtungen identifiziert.
+- **Skizzen:**
+  - **Variante A: Fokus auf Planung** – Aufgabenverwaltung und Session-Planung stehen im Zentrum. Einfache To-do-Liste mit Zeitschätzungen.
+  - **Variante B: Fokus auf Fokusmodus** – Timer und konzentriertes Arbeiten stehen im Zentrum. Pomodoro-ähnliche Struktur ohne Aufgabenverwaltung.
+  - **Variante C: Integrierter Lernworkflow** – Planung, Fokusmodus, Fortschritt und Reflexion werden in einem durchgehenden Ablauf kombiniert. Komplexer, aber vollständiger Ansatz.
 
 ### 3.3 Decide
 
-- **Gewählte Variante:** **Variante C – Integrierter Lernworkflow**, da sie das Kernproblem am vollständigsten adressiert, mehrere klare Workflows ermöglicht und sich gut für einen interaktiven Prototyp mit Datenverarbeitung eignet.
+- **Gewählte Variante & Begründung:** **Variante C – Integrierter Lernworkflow**, da sie das Kernproblem am vollständigsten adressiert, mehrere klare Workflows ermöglicht und sich gut für einen interaktiven Prototyp mit Datenverarbeitung eignet. Entscheidkriterien: Problemabdeckung, Interaktionstiefe, technische Umsetzbarkeit.
 - **End-to-End-Ablauf:** Nutzer:in öffnet das Dashboard, legt eine Aufgabe an, startet eine Fokus-Session mit Timer, trägt anschliessend Fortschritt ein, ergänzt eine kurze Reflexion und sieht die aktualisierte Übersicht.
-- **Figma-Prototyp (Übung 10):** [Mockup auf Figma](https://www.figma.com/proto/RmKMdEYCp6l5oIJJj5h3HG/StudySprint---Uebung-10-Prototyp?node-id=16-494&t=slL3OtXg9dkGPyHz-1)
+- **Mockup:** [Figma-Prototyp (Übung 10)](https://www.figma.com/proto/RmKMdEYCp6l5oIJJj5h3HG/StudySprint---Uebung-10-Prototyp?node-id=16-494&t=slL3OtXg9dkGPyHz-1)
 
 ### 3.4 Prototype
 
-#### 3.4.1 Entwurf (Design)
+#### 3.4.1. Entwurf (Design)
 
-- **Informationsarchitektur:** Hauptseiten sind Dashboard (mit Tabs), Aufgaben-Übersicht, Aufgabe erstellen/bearbeiten, Fokusmodus und Reflexion.
+Beschreibt die Gestaltung und Interaktion.
+
+> **Hinweis:** Hier wird der **Prototyp** beschrieben, nicht das **Mockup**.
+
+- **Informationsarchitektur:** Hauptseiten sind Dashboard (mit Tabs: Home, Aufgaben, Fokus, Fortschritt, Profil), Aufgaben-Übersicht, Aufgabe erstellen/bearbeiten, Fokusmodus und Reflexion. Navigation erfolgt primär über eine Bottom-Tab-Leiste (Mobile-first).
+- **User Interface Design:** _[Screenshots werden nach Deployment ergänzt]_
 - **Designentscheidungen:**
   - Mobile-first mit Bottom-Navigation (Tab-Leiste).
   - Reduzierte, ruhige Oberfläche mit wenig Ablenkung.
@@ -91,177 +83,184 @@ Es wurden drei grobe Lösungsrichtungen identifiziert:
   - Sichtbarer Fortschritt als Motivationselement.
   - Reflexion als kurze Mikro-Interaktion nach einer Session.
 
-#### 3.4.2 Umsetzung (Technik)
+#### 3.4.2. Umsetzung (Technik)
 
-**Technologie-Stack:**
+Fasst die technische Realisierung zusammen.
 
-| Technologie | Verwendung |
-|---|---|
-| SvelteKit (Svelte 5 Runes) | Frontend-Framework, Routing, API-Handler |
-| Bootstrap 5 + Bootstrap Icons | UI-Styling und Icons |
-| MongoDB (via `mongodb` Node-Driver) | Persistenz (Tasks, Sessions, Reflections) |
-| Google Gemini API (`@google/genai`) | OCR-Erkennung für Deadline-Extraktion |
-| `@sveltejs/adapter-auto` | Deployment-Adapter |
+- **Technologie-Stack:**
 
-**Komponentenstruktur:**
+  | Technologie | Verwendung |
+  |---|---|
+  | SvelteKit (Svelte 5 Runes) | Frontend-Framework, Routing, API-Handler |
+  | Bootstrap 5 + Bootstrap Icons | UI-Styling und Icons |
+  | MongoDB (via `mongodb` Node-Driver) | Persistenz (Tasks, Sessions, Reflections) |
+  | Google Gemini API (`@google/genai`) | OCR-Erkennung für Deadline-Extraktion |
+  | `@sveltejs/adapter-auto` | Deployment-Adapter |
 
-| Komponente | Beschreibung |
-|---|---|
-| `TaskList.svelte` | Kachelliste aller Aufgaben; dispatcht `toggle`- und `delete`-Events |
-| `TaskForm.svelte` | Wiederverwendbares Formular für Erstellen und Bearbeiten von Aufgaben |
-| `FeedbackMessage.svelte` | Zeigt Erfolgs- und Fehlermeldungen an |
+- **Tooling:** VS Code / Cursor IDE mit Svelte-Extension; MongoDB Atlas (Cloud-Datenbank); Netlify/Vercel für Deployment. KI-Einsatz siehe Kapitel **KI-Deklaration**.
 
-**API-Endpunkte:**
+- **Struktur & Komponenten:**
 
-| Endpunkt | Methoden | Funktion |
-|---|---|---|
-| `/api/tasks` | GET, POST | Alle Aufgaben abrufen / neue Aufgabe erstellen |
-| `/api/tasks/[id]` | GET, PATCH, DELETE | Einzelne Aufgabe lesen, aktualisieren, löschen |
-| `/api/sessions` | GET, POST | Lernsessions abrufen / erstellen |
-| `/api/sessions/[id]` | PATCH, DELETE | Session aktualisieren / löschen |
-| `/api/reflections` | GET, POST | Reflexionen abrufen / erstellen |
-| `/api/deadlines/extract` | POST | Deadlines per Regex aus Text extrahieren |
-| `/api/deadlines/ocr` | POST | Deadlines aus Bild per Google Gemini extrahieren |
+  | Komponente | Beschreibung |
+  |---|---|
+  | `TaskList.svelte` | Kachelliste aller Aufgaben; dispatcht `toggle`- und `delete`-Events |
+  | `TaskForm.svelte` | Wiederverwendbares Formular für Erstellen und Bearbeiten von Aufgaben |
+  | `FeedbackMessage.svelte` | Zeigt Erfolgs- und Fehlermeldungen an |
 
-**Datenmodell Tasks:**
+  Implementierte Seiten/Routen:
 
-```json
-{
-  "title": "String (Pflicht)",
-  "module": "String (Pflicht)",
-  "priority": "Number (1–5, Standard: 3)",
-  "status": "String (open | in-progress | done)",
-  "dueDate": "Date (optional)",
-  "duration": "Number (Minuten, Standard: 60)",
-  "createdAt": "Date"
-}
-```
+  | Route | Beschreibung |
+  |---|---|
+  | `/` | Dashboard mit Tab-Navigation (Home, Aufgaben, Fokus, Fortschritt, Profil) |
+  | `/tasks` | Aufgaben-Übersicht mit Filter- und Sortierfunktion |
+  | `/tasks/new` | Neue Aufgabe erfassen |
+  | `/tasks/[id]/edit` | Bestehende Aufgabe bearbeiten |
 
-**Implementierte Workflows:**
+- **Daten & Schnittstellen:** Daten werden in MongoDB Atlas gespeichert und über REST-API-Endpunkte verwaltet. Das Datenmodell für Tasks:
 
-1. **Hauptworkflow – Aufgaben verwalten (End-to-End):**
+  ```json
+  {
+    "title": "String (Pflicht)",
+    "module": "String (Pflicht)",
+    "priority": "Number (1–5, Standard: 3)",
+    "status": "String (open | in-progress | done)",
+    "dueDate": "Date (optional)",
+    "duration": "Number (Minuten, Standard: 60)",
+    "createdAt": "Date"
+  }
+  ```
 
-   ```
-   /tasks (Übersicht) → /tasks/new (Aufgabe erfassen) → /tasks (aktualisierte Liste)
-   /tasks → /tasks/[id]/edit (bearbeiten) → /tasks (Änderung sichtbar)
-   /tasks → Status-Toggle (offen / in Bearbeitung / erledigt)
-   /tasks → Aufgabe löschen
-   ```
+  API-Endpunkte:
 
-2. **Fokus-Workflow:**
+  | Endpunkt | Methoden | Funktion |
+  |---|---|---|
+  | `/api/tasks` | GET, POST | Alle Aufgaben abrufen / neue Aufgabe erstellen |
+  | `/api/tasks/[id]` | GET, PATCH, DELETE | Einzelne Aufgabe lesen, aktualisieren, löschen |
+  | `/api/sessions` | GET, POST | Lernsessions abrufen / erstellen |
+  | `/api/sessions/[id]` | PATCH, DELETE | Session aktualisieren / löschen |
+  | `/api/reflections` | GET, POST | Reflexionen abrufen / erstellen |
+  | `/api/deadlines/extract` | POST | Deadlines per Regex aus Text extrahieren |
+  | `/api/deadlines/ocr` | POST | Deadlines aus Bild per Google Gemini extrahieren |
 
-   ```
-   Dashboard (Tab "Fokus") → Aufgabe auswählen → Timer starten → Pausieren / Fortsetzen → Session abschliessen → Reflexion erfassen
-   ```
+- **Deployment:** *(Link wird nach Deployment ergänzt)* – Platform: Netlify / Vercel (via `@sveltejs/adapter-auto`). Benötigte Umgebungsvariablen: `MONGODB_URI`, `MONGODB_DB_NAME`, `GEMINI_API_KEY`.
 
-3. **Deadline-Import-Workflow:**
+  Lokale Entwicklung:
 
-   ```
-   Dashboard (Tab "Home") → Deadlines importieren → Text eingeben oder Bild hochladen → OCR-Erkennung via Gemini → Extrahierte Deadlines anzeigen
-   ```
+  ```sh
+  npm install
+  # .env-Datei erstellen mit MONGODB_URI, MONGODB_DB_NAME, GEMINI_API_KEY
+  npm run dev
+  ```
 
-4. **Fortschritts-Workflow:**
-
-   ```
-   Dashboard (Tab "Fortschritt") → Absolvierte Sessions anzeigen → Wochenziel-Übersicht → Modul-Statistiken
-   ```
-
-**Lokale Entwicklung:**
-
-```sh
-# Abhängigkeiten installieren
-npm install
-
-# Umgebungsvariablen konfigurieren (.env-Datei erstellen)
-# MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net
-# MONGODB_DB_NAME=StudySprint          # Optional, Standard: StudySprint
-# GEMINI_API_KEY=<dein-api-key>        # Für OCR-Funktion
-
-# Entwicklungsserver starten
-npm run dev
-
-# oder mit automatischem Browser-Öffnen
-npm run dev -- --open
-```
-
-**Build & Deployment:**
-
-```sh
-# Produktions-Build erstellen
-npm run build
-
-# Build lokal vorschauen
-npm run preview
-```
-
-#### 3.4.3 Deployment
-
-- **Deployed App:** *(Link wird ergänzt)*
-- **Platform:** Netlify / Vercel (via `@sveltejs/adapter-auto`)
-- **Benötigte Umgebungsvariablen im Deployment:**
-  - `MONGODB_URI` – MongoDB Atlas Connection String
-  - `MONGODB_DB_NAME` – Datenbankname (optional, Standard: `StudySprint`)
-  - `GEMINI_API_KEY` – Google Gemini API Key für OCR
+- **Besondere Entscheidungen:** MongoDB wurde gegenüber einer SQL-Datenbank bevorzugt, da das Datenmodell flexibel und schemalos entwickelt werden sollte. Die Reflexions- und Session-Entitäten wurden bewusst getrennt gehalten, um spätere Erweiterungen zu vereinfachen. OCR-Deadline-Erkennung wurde als optionale Erweiterung über die Gemini API integriert, da eine lokale OCR-Lösung zu aufwändig gewesen wäre.
 
 ### 3.5 Validate
 
 - **URL der getesteten Version:** *(wird nach Deployment ergänzt)*
 - **Ziele der Prüfung:** Es soll untersucht werden, ob Nutzer:innen den Ablauf intuitiv verstehen, Aufgaben einfach erstellen und bearbeiten können, der Fokusmodus als hilfreich wahrgenommen wird und Fortschritt sowie Reflexion verständlich sind.
+- **Vorgehen:** *(wird nach Evaluation ergänzt – geplant: moderiert, on-site)*
+- **Stichprobe:** *(wird nach Evaluation ergänzt)*
 - **Aufgaben/Szenarien:**
   1. Lege eine neue Aufgabe für ein Modul an.
   2. Setze die Aufgabe auf «In Bearbeitung».
   3. Starte eine Fokus-Session und schliesse sie ab.
   4. Hinterlasse eine kurze Reflexion zur Session.
   5. Bearbeite die Aufgabe und ändere die Priorität.
+- **Kennzahlen & Beobachtungen:** *(wird nach Evaluation ergänzt)*
 - **Zusammenfassung der Resultate:** *(wird nach der Evaluation ergänzt)*
 - **Abgeleitete Verbesserungen:** *(wird nach der Evaluation ergänzt)*
 
----
-
 ## 4. Erweiterungen
+Dokumentiert Erweiterungen über den Mindestumfang hinaus.
 
-Folgende Erweiterungen wurden über den Mindestumfang hinaus umgesetzt:
+> **Hinweis:** Jede Erweiterung ist separat nach dem folgenden Schema beschrieben.
 
-| Erweiterung | Beschreibung |
-|---|---|
-| **OCR-Deadline-Erkennung** | Bilder (z.B. Stundenplan-Screenshots) können hochgeladen werden. Google Gemini extrahiert automatisch Deadlines aus dem Bild. |
-| **Text-basierte Deadline-Extraktion** | Freitext kann eingegeben werden; ein Regex-Algorithmus erkennt Daten und Modulnamen. |
-| **Reflexions-Workflow** | Nach Lernsessions kann eine kurze Reflexion mit Bewertung (Rating) und optionaler Notiz gespeichert werden. |
-| **Sessions-Persistenz** | Lernsessions werden mit Thema, Modul, Startzeit und Dauer in MongoDB gespeichert. |
-| **Prioritäten-System** | Aufgaben können mit Priorität 1–5 versehen werden. |
-| **Filter & Sortierung** | Die Aufgabenliste unterstützt Filterung nach Status und Sortierung nach Priorität, Fälligkeit und Erstelldatum. |
-| **Fokus-Timer** | Eingebauter Countdown-Timer im Fokusmodus mit Pause- und Abbruchfunktion. |
+### 4.1 OCR-Deadline-Erkennung
+- **Beschreibung & Nutzen:** Bilder (z. B. Stundenplan-Screenshots) können hochgeladen werden. Google Gemini extrahiert automatisch Deadlines aus dem Bild. Spart manuelles Abtippen und reduziert Fehler.
+- **Wo umgesetzt:**
+  - **Frontend:** Datei-Upload im Dashboard-Tab «Home»
+  - **Backend:** API-Endpunkt `/api/deadlines/ocr` in `src/routes/api/deadlines/ocr/+server.js`
+- **Referenz:** Technologie-Stack-Tabelle in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, von Beginn an geplant.
 
----
+### 4.2 Text-basierte Deadline-Extraktion
+- **Beschreibung & Nutzen:** Freitext kann eingegeben werden; ein Regex-Algorithmus erkennt Daten und Modulnamen automatisch. Ermöglicht schnellen Import ohne manuelle Eingabe.
+- **Wo umgesetzt:**
+  - **Frontend:** Texteingabe-Feld im Dashboard-Tab «Home»
+  - **Backend:** API-Endpunkt `/api/deadlines/extract` in `src/routes/api/deadlines/extract/+server.js`
+- **Referenz:** API-Endpunkte-Tabelle in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, von Beginn an als Ergänzung zur OCR-Variante geplant.
+
+### 4.3 Reflexions-Workflow
+- **Beschreibung & Nutzen:** Nach Lernsessions kann eine kurze Reflexion mit Bewertung (Rating 1–5) und optionaler Notiz gespeichert werden. Fördert die Metakognition und hilft, Lerngewohnheiten zu verbessern.
+- **Wo umgesetzt:**
+  - **Frontend:** Reflexions-Formular im Anschluss an den Fokusmodus
+  - **Backend:** API-Endpunkte `/api/reflections` (GET, POST) in `src/routes/api/reflections/+server.js`
+  - **Datenbank:** Separate `reflections`-Collection in MongoDB
+- **Referenz:** Fokus-Workflow-Beschreibung in Kap. 3.4.2; API-Tabelle in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, von Beginn an Teil des Konzepts.
+
+### 4.4 Sessions-Persistenz
+- **Beschreibung & Nutzen:** Lernsessions werden mit Thema, Modul, Startzeit und Dauer in MongoDB gespeichert. Ermöglicht die Anzeige von Fortschrittsstatistiken.
+- **Wo umgesetzt:**
+  - **Backend:** API-Endpunkte `/api/sessions` und `/api/sessions/[id]` in `src/routes/api/sessions/`
+  - **Datenbank:** Separate `sessions`-Collection in MongoDB
+- **Referenz:** API-Tabelle und Fortschritts-Workflow in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, strukturell notwendig für den Fortschritts-Tab.
+
+### 4.5 Prioritäten-System
+- **Beschreibung & Nutzen:** Aufgaben können mit Priorität 1–5 versehen werden. Ermöglicht bessere Priorisierung im Lernalltag.
+- **Wo umgesetzt:**
+  - **Frontend:** Prioritäts-Selektor im `TaskForm.svelte`
+  - **Backend:** `priority`-Feld im Task-Datenmodell, gespeichert in MongoDB
+- **Referenz:** Datenmodell in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, von Beginn an geplant.
+
+### 4.6 Filter & Sortierung
+- **Beschreibung & Nutzen:** Die Aufgabenliste unterstützt Filterung nach Status und Sortierung nach Priorität, Fälligkeit und Erstelldatum. Verbessert die Übersicht bei vielen Aufgaben.
+- **Wo umgesetzt:**
+  - **Frontend:** Filter- und Sortier-Dropdowns in der Aufgaben-Übersicht (`/tasks`)
+  - **Backend:** Query-Parameter-Verarbeitung im API-Endpunkt `/api/tasks`
+- **Referenz:** Routen-Tabelle in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, von Beginn an geplant.
+
+### 4.7 Fokus-Timer
+- **Beschreibung & Nutzen:** Eingebauter Countdown-Timer im Fokusmodus mit Pause- und Abbruchfunktion. Unterstützt konzentriertes Arbeiten in definierten Zeitblöcken.
+- **Wo umgesetzt:**
+  - **Frontend:** Timer-Logik im Dashboard-Tab «Fokus», umgesetzt mit Svelte-Stores und `setInterval`
+- **Referenz:** Fokus-Workflow-Beschreibung in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Nein, zentrales Feature des Konzepts.
 
 ## 5. Projektorganisation
-
-- **Repository:** [GitHub – StudySprint](https://github.com/manuelmarti/StudySprint) *(Link wird ergänzt)*
-- **Commit-Praxis:** Sprechende Commits mit Präfixen (`feat:`, `fix:`, `refactor:`, `docs:`).
-- **Branching:** Entwicklung auf `main`, Feature-Branches bei grösseren Änderungen.
-
----
+- **Repository & Struktur:** [GitHub – StudySprint](https://github.com/manuelmarti/StudySprint) *(Link wird ergänzt)*. Struktur: `src/routes/` für Seiten und API-Handler, `src/lib/` für wiederverwendbare Komponenten und Stores.
+- **Issue-Management:** Aufgaben und Bugs werden als GitHub Issues erfasst und nach Priorität bearbeitet.
+- **Commit-Praxis:** Sprechende Commits mit Präfixen (`feat:`, `fix:`, `refactor:`, `docs:`). Entwicklung primär auf `main`, Feature-Branches bei grösseren Änderungen.
 
 ## 6. KI-Deklaration
+
+Die folgende Deklaration ist verpflichtend und beschreibt den Einsatz von KI im Projekt.
 
 ### 6.1 KI-Tools
 
 - **Eingesetzte Tools:**
-  - **Claude Sonnet** – KI-gestützte Code-Generierung, Refactoring, Debugging und Dokumentation 
-  - **ChatGPT** – Ideenfindung, Strukturierung der Problemstellung und Formulierung der Dokumentation.
-  - **GitHub Copilot** – Unterstützende Code-Vorschläge beim Schreiben.
-  - **Google Gemini API** – Eingebunden als Produktfeature für die OCR-basierte Deadline-Erkennung.
-
+  - **Claude Sonnet** (via Cursor IDE) – KI-gestützte Code-Generierung, Refactoring, Debugging und Dokumentation
+  - **ChatGPT** – Ideenfindung, Strukturierung der Problemstellung und Formulierung der Dokumentation
+  - **GitHub Copilot** – Unterstützende Code-Vorschläge beim Schreiben
+  - **Google Gemini API** – Eingebunden als Produktfeature für die OCR-basierte Deadline-Erkennung
+- **Zweck & Umfang:** Claude Sonnet wurde am intensivsten eingesetzt, primär für Codevorschläge, Komponentenstruktur, API-Implementierungen und Refactoring. ChatGPT wurde für Ideenfindung und Textformulierungen genutzt. Copilot lieferte kleinere Autovervollständigungen. Grössere Teile des Codes (insbesondere API-Handler und Svelte-Komponenten) entstanden mit KI-Unterstützung und wurden eigenständig überprüft, angepasst und integriert.
 - **Eigene Leistung (Abgrenzung):** Die Auswahl des Projektthemas, die inhaltliche Ausrichtung, alle Architektur- und Designentscheidungen sowie die Überarbeitung und Integration der KI-Vorschläge erfolgten eigenständig. KI dient unterstützend, ersetzt aber nicht die eigene Analyse, Umsetzung und Verantwortung.
 
 ### 6.2 Prompt-Vorgehen
 
-Beim Einsatz von KI wurde darauf geachtet, konkrete und kontextbezogene Anweisungen zu formulieren, Ergebnisse kritisch zu prüfen und Inhalte an die spezifischen Projektanforderungen anzupassen. Keine KI-Ausgabe wurde ungeprüft übernommen.
+Beim Einsatz von KI wurde darauf geachtet, konkrete und kontextbezogene Anweisungen zu formulieren. Typische Vorgehensweise: Zunächst wurde der Kontext (Technologie-Stack, Ziel der Komponente) beschrieben, dann eine klare Aufgabe formuliert. Ergebnisse wurden stets kritisch geprüft, auf Projektkonventionen angepasst und bei Bedarf iterativ verfeinert. Keine KI-Ausgabe wurde ungeprüft übernommen.
 
 ### 6.3 Reflexion
 
-KI ist besonders bei Strukturierung, Boilerplate-Code und Formulierungen hilfreich. Gleichzeitig besteht das Risiko, zu generische Lösungen zu übernehmen, die nicht zum Projektkontext passen. Eine kritische Prüfung aller Ergebnisse ist deshalb unerlässlich.
+KI ist besonders bei Strukturierung, Boilerplate-Code und Formulierungen hilfreich und beschleunigt die Entwicklung erheblich. Gleichzeitig besteht das Risiko, zu generische Lösungen zu übernehmen, die nicht zum Projektkontext passen. Eine kritische Prüfung aller Ergebnisse ist deshalb unerlässlich. Bei komplexen Architekturentscheidungen erwies sich KI als weniger verlässlich – hier war eigenes Urteil gefragt.
 
----
+## 7. Anhang
 
-*App-Icon: [Flaticon – Study Icon](https://www.flaticon.com/de/kostenloses-icon/study_8445148)*
+- **Quellen:**
+  - App-Icon: [Flaticon – Study Icon](https://www.flaticon.com/de/kostenloses-icon/study_8445148)
+- **Testskript & Materialien:** *(wird nach Evaluation ergänzt)*
+- **Rohdaten/Auswertung:** *(wird nach Evaluation ergänzt)*

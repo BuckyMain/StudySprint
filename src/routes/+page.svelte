@@ -22,25 +22,58 @@
 	let tasks = $state([]);
 	let reflections = $state([]);
 
-	// User settings (loaded from localStorage in onMount)
+	// User settings (loaded from backend API on mount)
 	let userName = $state('');
 	let darkMode = $state(false);
+	let focusDuration = $state(25);
+	let weeklyGoalHours = $state(10);
+	let mySemesters = $state([]); // [{ id, name, color }]
+	let activeSemesterId = $state('');
+	let myModules = $state([]); // [{ id, name, color, semesterId }]
+	let newSemesterInput = $state('');
+	let newSemesterColor = $state(MODULE_COLORS[0]);
+	let newModuleInput = $state('');
+	let newModuleColor = $state(MODULE_COLORS[0]);
+	let settingsSaved = $state(false);
 
 	// Tasks sub-view: 'list' | 'new' | 'import' | 'edit'
 	let taskSubView = $state('list');
 	let taskSortBy = $state('priority');
 	let taskFilterModule = $state('');
-	let showOnlyOpen = $state(false);
+	let taskFilterStatus = $state('open');
+	let deletingTaskId = $state(null);
+	let deletingSemesterId = $state('');
+	let deletingModuleId = $state('');
+	let confirmingDeleteAllData = $state(false);
 
-	let taskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3', notes: '' });
+	let taskForm = $state({
+		title: '',
+		module: '',
+		dueDate: '',
+		duration: 25,
+		priority: '3',
+		notes: '',
+		semesterId: '',
+		semesterName: ''
+	});
 
 	let editingTaskId = $state('');
-	let editTaskForm = $state({ title: '', module: '', dueDate: '', duration: 25, priority: '3', notes: '' });
+	let editTaskForm = $state({
+		title: '',
+		module: '',
+		dueDate: '',
+		duration: 25,
+		priority: '3',
+		notes: '',
+		semesterId: '',
+		semesterName: ''
+	});
 
 	let deadlineInput = $state('');
 	let extractedDeadlines = $state([]);
 	let editingDeadlineIdx = $state(-1);
-	let editingDeadlineData = $state({ title: '', module: '', dueDate: '', priority: '3' });
+	let editingDeadlineData = $state({ title: '', dueDate: '', priority: '3' });
+	let importSelectedModule = $state('');
 	let semesterplanFileName = $state('');
 	let semesterplanImageBase64 = $state('');
 	let semesterplanMimeType = $state('');
@@ -57,6 +90,7 @@
 	let reflectionNote = $state('');
 
 	// Progress filter
+	let progressFilterSemester = $state('');
 	let progressFilterModule = $state('');
 
 	const completedTasks = $derived(tasks.filter((t) => t.status === 'erledigt'));
@@ -77,9 +111,38 @@
 	);
 
 	const modules = $derived([...new Set(tasks.map((t) => t.module).filter(Boolean))]);
+	const allModuleNames = $derived([...new Set([...myModules.map((m) => m.name), ...modules])]);
+	const activeModules = $derived(
+		activeSemesterId ? myModules.filter((m) => m.semesterId === activeSemesterId) : myModules
+	);
+	const activeSemester = $derived(mySemesters.find((s) => s.id === activeSemesterId) ?? null);
+	const tasksInActiveSemester = $derived.by(() => {
+		if (!activeSemesterId) return tasks;
+		return tasks.filter((t) => taskBelongsToSemester(t, activeSemesterId));
+	});
+	const taskFilterModules = $derived([
+		...new Set(tasksInActiveSemester.map((t) => t.module).filter(Boolean))
+	]);
+	const canAdoptAllDeadlines = $derived.by(() => {
+		if (activeModules.length === 0 || extractedDeadlines.length === 0) return false;
+		return Boolean(importSelectedModule && activeModules.some((m) => m.name === importSelectedModule));
+	});
+	const thisWeekFocusMinutes = $derived.by(() => {
+		const now = new Date();
+		const dow = now.getDay();
+		const diffToMon = dow === 0 ? -6 : 1 - dow;
+		const weekStart = new Date(now);
+		weekStart.setDate(now.getDate() + diffToMon);
+		weekStart.setHours(0, 0, 0, 0);
+		return reflections
+			.filter((r) => new Date(r.createdAt) >= weekStart)
+			.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0);
+	});
 
 	const filteredSortedTasks = $derived.by(() => {
-		let list = showOnlyOpen ? openTasks : tasks;
+		let list = tasksInActiveSemester;
+		if (taskFilterStatus === 'open') list = list.filter((t) => t.status !== 'erledigt');
+		else if (taskFilterStatus) list = list.filter((t) => t.status === taskFilterStatus);
 		if (taskFilterModule) list = list.filter((t) => t.module === taskFilterModule);
 		return [...list].sort((a, b) => {
 			if (taskSortBy === 'priority') return Number(a.priority) - Number(b.priority);
@@ -133,26 +196,112 @@
 
 	const maxWeeklyCount = $derived(Math.max(1, ...weeklyData.map((d) => d.count)));
 
-	// Per-module stats for progress tab
-	const moduleStats = $derived.by(() => {
-		return modules.map((mod, idx) => {
-			const modTasks = tasks.filter((t) => t.module === mod);
+	const progressTasks = $derived.by(() => {
+		if (!progressFilterSemester) return tasks;
+		return tasks.filter((t) => taskBelongsToSemester(t, progressFilterSemester));
+	});
+	const progressTaskIds = $derived.by(() => new Set(progressTasks.map((t) => t._id)));
+	const progressReflections = $derived.by(() => {
+		if (!progressFilterSemester) return reflections;
+		return reflections.filter((r) => r.taskId && progressTaskIds.has(String(r.taskId)));
+	});
+	const progressCompletedTasks = $derived(progressTasks.filter((t) => t.status === 'erledigt'));
+	const progressModules = $derived([...new Set(progressTasks.map((t) => t.module).filter(Boolean))]);
+	const progressTotalFocusMinutes = $derived(
+		progressReflections.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0)
+	);
+	const progressThisWeekFocusMinutes = $derived.by(() => {
+		const now = new Date();
+		const dow = now.getDay();
+		const diffToMon = dow === 0 ? -6 : 1 - dow;
+		const weekStart = new Date(now);
+		weekStart.setDate(now.getDate() + diffToMon);
+		weekStart.setHours(0, 0, 0, 0);
+		return progressReflections
+			.filter((r) => new Date(r.createdAt) >= weekStart)
+			.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0);
+	});
+	const progressWeeklyData = $derived.by(() => {
+		const labels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+		const counts = Array(7).fill(0);
+		const now = new Date();
+		const dow = now.getDay();
+		const diffToMon = dow === 0 ? -6 : 1 - dow;
+		const weekStart = new Date(now);
+		weekStart.setDate(now.getDate() + diffToMon);
+		weekStart.setHours(0, 0, 0, 0);
+		const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
+		for (const r of progressReflections) {
+			const d = new Date(r.createdAt);
+			if (d >= weekStart && d < weekEnd) counts[(d.getDay() + 6) % 7]++;
+		}
+		const todayIdx = (now.getDay() + 6) % 7;
+		return labels.map((label, i) => ({ label, count: counts[i], isToday: i === todayIdx }));
+	});
+	const progressMaxWeeklyCount = $derived(Math.max(1, ...progressWeeklyData.map((d) => d.count)));
+	const progressModuleStats = $derived.by(() => {
+		return progressModules.map((mod) => {
+			const modTasks = progressTasks.filter((t) => t.module === mod);
 			const modDone = modTasks.filter((t) => t.status === 'erledigt').length;
 			const pct = modTasks.length ? Math.round((modDone / modTasks.length) * 100) : 0;
-			return { mod, total: modTasks.length, done: modDone, pct, color: MODULE_COLORS[idx % MODULE_COLORS.length] };
+			return { mod, total: modTasks.length, done: modDone, pct, color: getModuleColor(mod) };
 		});
 	});
+	const filteredProgressCompletedTasks = $derived.by(() => {
+		if (!progressFilterModule) return progressCompletedTasks;
+		return progressCompletedTasks.filter((t) => t.module === progressFilterModule);
+	});
 
-	const filteredCompletedTasks = $derived.by(() => {
-		if (!progressFilterModule) return completedTasks;
-		return completedTasks.filter((t) => t.module === progressFilterModule);
+	$effect(() => {
+		if (taskFilterModule && !taskFilterModules.includes(taskFilterModule)) {
+			taskFilterModule = '';
+		}
+	});
+	$effect(() => {
+		if (progressFilterModule && !progressModules.includes(progressFilterModule)) {
+			progressFilterModule = '';
+		}
 	});
 
 	function getModuleColor(mod) {
 		if (!mod) return '#6b7280';
+		const found = myModules.find((m) => m.name === mod);
+		if (found) return found.color;
 		const idx = modules.indexOf(mod);
 		if (idx === -1) return '#6b7280';
 		return MODULE_COLORS[idx % MODULE_COLORS.length];
+	}
+
+	function getSemesterNameById(id) {
+		if (!id) return '';
+		const sem = mySemesters.find((s) => s.id === id);
+		return sem?.name || '';
+	}
+
+	function taskBelongsToSemester(task, semesterId) {
+		if (!semesterId) return true;
+		if (task.semesterId) return task.semesterId === semesterId;
+		if (!task.module) return false;
+		const moduleEntry = myModules.find((m) => m.name === task.module);
+		return moduleEntry?.semesterId === semesterId;
+	}
+
+	function buildNewTaskFormDefaults() {
+		return {
+			title: '',
+			module: '',
+			dueDate: '',
+			duration: Number(focusDuration) || 25,
+			priority: '3',
+			notes: '',
+			semesterId: activeSemesterId || '',
+			semesterName: activeSemester?.name || ''
+		};
+	}
+
+	function openNewTaskForm() {
+		taskForm = buildNewTaskFormDefaults();
+		taskSubView = 'new';
 	}
 
 	function priorityBadgeClass(p) {
@@ -194,29 +343,93 @@
 		return response.json();
 	}
 
-	async function refreshData() {
-		loading = true;
+	function asId(value) {
+		return value ? String(value) : '';
+	}
+
+	function normalizeSemesters(items) {
+		return (items || []).map((sem) => ({ ...sem, id: asId(sem._id || sem.id) }));
+	}
+
+	function normalizeModules(items) {
+		return (items || []).map((mod) => ({ ...mod, id: asId(mod._id || mod.id) }));
+	}
+
+	function normalizeExtractedDeadlines(items = []) {
+		const normalizePriority = (value) => {
+			const raw = String(value || '').trim().toLowerCase();
+			if (['1', '2', '3', '4', '5'].includes(raw)) return raw;
+			if (raw.includes('höch') || raw.includes('hoch')) return '1';
+			if (raw.includes('niedrig')) return '5';
+			if (raw.includes('mittel') || raw.includes('normal')) return '3';
+			return '3';
+		};
+
+		return items.map((item) => ({
+			...item,
+			detectedModule: String(item.module || '').trim(),
+			priority: normalizePriority(item.priority)
+		}));
+	}
+
+	async function refreshData(showLoading = true) {
+		if (showLoading) loading = true;
 		error = '';
 		try {
-			const [tasksData, reflectionsData] = await Promise.all([
+			const [tasksData, reflectionsData, settingsData, semestersData, modulesData] = await Promise.all([
 				api('/api/tasks'),
-				api('/api/reflections')
+				api('/api/reflections'),
+				api('/api/settings'),
+				api('/api/semesters'),
+				api('/api/modules')
 			]);
 			tasks = tasksData.map((t) => ({ ...t, _id: String(t._id) }));
 			reflections = reflectionsData.map((r) => ({ ...r, _id: String(r._id) }));
+			mySemesters = normalizeSemesters(semestersData);
+			myModules = normalizeModules(modulesData);
+
+			userName = String(settingsData.userName || '');
+			darkMode = Boolean(settingsData.darkMode);
+			focusDuration = Number(settingsData.focusDuration || 25);
+			weeklyGoalHours = Number(settingsData.weeklyGoalHours || 10);
+
+			const preferredActiveSemesterId = String(settingsData.activeSemesterId || '');
+			const activeFromSemesters = mySemesters.find((s) => s.isActive)?.id || '';
+			const nextActiveSemesterId =
+				preferredActiveSemesterId && mySemesters.some((s) => s.id === preferredActiveSemesterId)
+					? preferredActiveSemesterId
+					: activeFromSemesters;
+			activeSemesterId = nextActiveSemesterId;
+
 			if (!selectedTaskId && tasks.length > 0) selectedTaskId = tasks[0]._id;
+			if (selectedTaskId && !tasks.some((t) => t._id === selectedTaskId)) {
+				selectedTaskId = tasks[0]?._id || '';
+			}
 		} catch (e) {
 			error = e.message;
 		} finally {
-			loading = false;
+			if (showLoading) loading = false;
 		}
 	}
 
 	async function createTask() {
 		error = '';
 		try {
-			await api('/api/tasks', { method: 'POST', body: JSON.stringify(taskForm) });
-			taskForm = { title: '', module: '', dueDate: '', duration: 25, priority: '3', notes: '' };
+			if (!activeSemesterId) {
+				error = 'Bitte zuerst ein aktives Semester im Profil auswählen.';
+				return;
+			}
+			const selectedModule = activeModules.find((m) => m.name === taskForm.module);
+			const payload = {
+				...taskForm,
+				duration: Number(taskForm.duration || focusDuration || 25),
+				moduleId: selectedModule?.id || '',
+				moduleName: taskForm.module,
+				semesterId: activeSemesterId || taskForm.semesterId || '',
+				semesterName: activeSemester?.name || taskForm.semesterName || ''
+			};
+			await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
+			taskForm = buildNewTaskFormDefaults();
 			taskSubView = 'list';
 			await refreshData();
 		} catch (e) {
@@ -226,13 +439,16 @@
 
 	function startEditTask(task) {
 		editingTaskId = task._id;
+		const fallbackSemesterName = activeSemester?.name || '';
 		editTaskForm = {
 			title: task.title,
-			module: task.module || '',
+			module: task.moduleName || task.module || '',
 			dueDate: task.dueDate || '',
 			duration: task.duration || 25,
 			priority: task.priority || '3',
-			notes: task.notes || ''
+			notes: task.notes || '',
+			semesterId: task.semesterId || activeSemesterId || '',
+			semesterName: task.semesterName || getSemesterNameById(task.semesterId) || fallbackSemesterName
 		};
 		taskSubView = 'edit';
 	}
@@ -240,9 +456,14 @@
 	async function updateTask() {
 		error = '';
 		try {
+			const selectedModule = activeModules.find((m) => m.name === editTaskForm.module);
 			await api(`/api/tasks/${editingTaskId}`, {
 				method: 'PATCH',
-				body: JSON.stringify(editTaskForm)
+				body: JSON.stringify({
+					...editTaskForm,
+					moduleId: selectedModule?.id || '',
+					moduleName: editTaskForm.module
+				})
 			});
 			taskSubView = 'list';
 			await refreshData();
@@ -254,16 +475,17 @@
 	async function setTaskStatus(task, status) {
 		try {
 			await api(`/api/tasks/${task._id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-			await refreshData();
+			await refreshData(false);
 		} catch (e) {
 			error = e.message;
 		}
 	}
 
 	async function deleteTask(taskId) {
-		if (!window.confirm('Aufgabe wirklich löschen?')) return;
+		error = '';
 		try {
 			await api(`/api/tasks/${taskId}`, { method: 'DELETE' });
+			deletingTaskId = null;
 			await refreshData();
 		} catch (e) {
 			error = e.message;
@@ -273,12 +495,17 @@
 	async function extractDeadlines() {
 		error = '';
 		deadlineSuccess = '';
+		if (activeModules.length === 0) {
+			error = 'Bitte zuerst im Profil mindestens ein Modul im aktiven Semester erstellen.';
+			return;
+		}
 		try {
 			const payload = await api('/api/deadlines/extract', {
 				method: 'POST',
 				body: JSON.stringify({ text: deadlineInput })
 			});
-			extractedDeadlines = payload.items || [];
+			extractedDeadlines = normalizeExtractedDeadlines(payload.items || []);
+			importSelectedModule = '';
 			deadlineSuccess = extractedDeadlines.length
 				? `${extractedDeadlines.length} Deadline(s) erkannt.`
 				: 'Keine Deadline erkannt.';
@@ -313,6 +540,10 @@
 	async function extractDeadlinesWithOcr() {
 		error = '';
 		deadlineSuccess = '';
+		if (activeModules.length === 0) {
+			error = 'Bitte zuerst im Profil mindestens ein Modul im aktiven Semester erstellen.';
+			return;
+		}
 		if (!semesterplanImageBase64) { error = 'Bitte zuerst eine Datei auswählen.'; return; }
 		ocrLoading = true;
 		try {
@@ -320,7 +551,8 @@
 				method: 'POST',
 				body: JSON.stringify({ imageBase64: semesterplanImageBase64, mimeType: semesterplanMimeType })
 			});
-			extractedDeadlines = payload.items || [];
+			extractedDeadlines = normalizeExtractedDeadlines(payload.items || []);
+			importSelectedModule = '';
 			deadlineSuccess = extractedDeadlines.length
 				? `${extractedDeadlines.length} Deadline(s) per OCR erkannt.`
 				: 'Keine Deadline gefunden.';
@@ -329,6 +561,13 @@
 		} finally {
 			ocrLoading = false;
 		}
+	}
+
+	async function ensureActiveSemesterForTaskImport() {
+		if (activeSemesterId) return activeSemesterId;
+		await refreshData();
+		if (activeSemesterId) return activeSemesterId;
+		throw new Error('Bitte zuerst im Profil ein aktives Semester auswählen oder erstellen.');
 	}
 
 	function startEditDeadline(idx) {
@@ -349,14 +588,25 @@
 
 	async function addDeadlineAsTask(item, idx) {
 		try {
+			const semesterId = await ensureActiveSemesterForTaskImport();
+			const semesterName = mySemesters.find((s) => s.id === semesterId)?.name || activeSemester?.name || '';
+			const selectedModule = activeModules.find((m) => m.name === importSelectedModule);
+			if (!selectedModule) {
+				error = 'Bitte oben zuerst ein Modul aus dem Profil auswählen.';
+				return;
+			}
 			await api('/api/tasks', {
 				method: 'POST',
 				body: JSON.stringify({
 					title: item.title,
-					module: item.module,
+					module: selectedModule.name,
+					moduleName: selectedModule.name,
+					moduleId: selectedModule?.id || '',
 					dueDate: item.dueDate,
 					duration: 45,
-					priority: item.priority || '3'
+					priority: item.priority || '3',
+					semesterId,
+					semesterName
 				})
 			});
 			// Remove adopted item from the list
@@ -373,28 +623,50 @@
 		adoptingAll = true;
 		error = '';
 		deadlineSuccess = '';
+		if (!canAdoptAllDeadlines) {
+			error = 'Bitte oben zuerst ein Modul aus dem Profil auswählen.';
+			adoptingAll = false;
+			return;
+		}
 		const items = [...extractedDeadlines];
 		let added = 0;
+		let semesterId = '';
+		let semesterName = '';
 		for (const item of items) {
 			try {
+				if (!semesterId) {
+					semesterId = await ensureActiveSemesterForTaskImport();
+					semesterName = mySemesters.find((s) => s.id === semesterId)?.name || activeSemester?.name || '';
+				}
+				const selectedModule = activeModules.find((m) => m.name === importSelectedModule);
+				if (!selectedModule) continue;
 				await api('/api/tasks', {
 					method: 'POST',
 					body: JSON.stringify({
 						title: item.title,
-						module: item.module,
+						module: selectedModule.name,
+						moduleName: selectedModule.name,
+						moduleId: selectedModule?.id || '',
 						dueDate: item.dueDate,
 						duration: 45,
-						priority: item.priority || '3'
+						priority: item.priority || '3',
+						semesterId,
+						semesterName
 					})
 				});
 				added++;
 			} catch (e) {
-				// Continue with remaining items
+				error = e.message;
 			}
 		}
-		extractedDeadlines = [];
-		await refreshData();
-		deadlineSuccess = `${added} Aufgabe(n) übernommen.`;
+		if (added > 0) {
+			extractedDeadlines = [];
+			importSelectedModule = '';
+			await refreshData();
+			deadlineSuccess = `${added} Aufgabe(n) übernommen.`;
+		} else {
+			error = error || 'Es konnte keine Aufgabe übernommen werden.';
+		}
 		adoptingAll = false;
 	}
 
@@ -404,6 +676,7 @@
 
 	function removeAllDeadlines() {
 		extractedDeadlines = [];
+		importSelectedModule = '';
 		deadlineSuccess = '';
 	}
 
@@ -422,7 +695,7 @@
 		if (isFocusRunning) {
 			stopFocus();
 			// Set to "in Bearbeitung" when paused mid-session
-			if (selectedTask && focusHasStarted && focusSecondsLeft < 25 * 60) {
+			if (selectedTask && focusHasStarted && focusSecondsLeft < focusDuration * 60) {
 				await setTaskStatus(selectedTask, 'in Bearbeitung');
 			}
 		}
@@ -430,7 +703,7 @@
 
 	function resetFocus() {
 		stopFocus();
-		focusSecondsLeft = 25 * 60;
+		focusSecondsLeft = focusDuration * 60;
 		focusHasStarted = false;
 	}
 
@@ -451,7 +724,7 @@
 
 	async function completeFocusSession() {
 		if (!selectedTask) { error = 'Keine aktive Aufgabe vorhanden.'; return; }
-		const elapsedMinutes = Math.max(1, Math.round((25 * 60 - focusSecondsLeft) / 60));
+		const elapsedMinutes = Math.max(1, Math.round((focusDuration * 60 - focusSecondsLeft) / 60));
 		try {
 			await api('/api/reflections', {
 				method: 'POST',
@@ -472,9 +745,271 @@
 		}
 	}
 
-	function saveSettings() {
-		localStorage.setItem('userName', userName);
-		localStorage.setItem('darkMode', String(darkMode));
+	async function saveSettings(showFeedback = true, overrides = {}) {
+		error = '';
+		try {
+			await api('/api/settings', {
+				method: 'PUT',
+				body: JSON.stringify({
+					userName,
+					darkMode,
+					focusDuration,
+					weeklyGoalHours,
+					activeSemesterId,
+					migrationVersion: 1,
+					...overrides
+				})
+			});
+			if (showFeedback) {
+				settingsSaved = true;
+				setTimeout(() => { settingsSaved = false; }, 2500);
+			}
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function setActiveSemester(id, { refresh = true } = {}) {
+		activeSemesterId = id;
+		if (id) {
+			await api(`/api/semesters/${id}`, {
+				method: 'PATCH',
+				body: JSON.stringify({ isActive: true })
+			});
+		}
+		await saveSettings(false, { activeSemesterId: id });
+		if (refresh) await refreshData();
+	}
+
+	async function addSemester() {
+		const name = newSemesterInput.trim();
+		if (!name) return;
+		error = '';
+		try {
+			const created = await api('/api/semesters', {
+				method: 'POST',
+				body: JSON.stringify({ name, color: newSemesterColor })
+			});
+			newSemesterInput = '';
+			await refreshData();
+			if (!activeSemesterId && created?._id) {
+				await setActiveSemester(String(created._id));
+			}
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function removeSemester(id) {
+		error = '';
+		try {
+			await api(`/api/semesters/${id}`, { method: 'DELETE' });
+			await refreshData();
+			if (activeSemesterId === id) {
+				const fallbackId = mySemesters.find((s) => s.isActive)?.id || '';
+				activeSemesterId = fallbackId;
+				await saveSettings(false, { activeSemesterId: fallbackId });
+			}
+		} catch (e) {
+			error = e.message;
+		}
+		deletingSemesterId = '';
+	}
+
+	async function addModule() {
+		const name = newModuleInput.trim();
+		if (!name || !activeSemesterId) {
+			newModuleInput = '';
+			return;
+		}
+		if (myModules.find((m) => m.name === name && m.semesterId === activeSemesterId)) {
+			newModuleInput = '';
+			return;
+		}
+		error = '';
+		try {
+			await api('/api/modules', {
+				method: 'POST',
+				body: JSON.stringify({ name, color: newModuleColor, semesterId: activeSemesterId })
+			});
+			newModuleInput = '';
+			await refreshData();
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	async function removeModule(id) {
+		error = '';
+		try {
+			await api(`/api/modules/${id}`, { method: 'DELETE' });
+			await refreshData();
+		} catch (e) {
+			error = e.message;
+		}
+		deletingModuleId = '';
+	}
+
+	function confirmRemoveSemester(id) {
+		removeSemester(id);
+	}
+
+	function cancelRemoveSemester() {
+		deletingSemesterId = '';
+	}
+
+	function confirmRemoveModule(id) {
+		removeModule(id);
+	}
+
+	function cancelRemoveModule() {
+		deletingModuleId = '';
+	}
+
+	function confirmDeleteTask(taskId) {
+		deletingTaskId = taskId;
+	}
+
+	function cancelDeleteTask() {
+		deletingTaskId = null;
+	}
+
+	function requestDeleteAllData() {
+		confirmingDeleteAllData = true;
+		deletingSemesterId = '';
+		deletingModuleId = '';
+	}
+
+	function cancelDeleteAllData() {
+		confirmingDeleteAllData = false;
+	}
+
+	function openProfileQuicklink(sectionId, focusInputId) {
+		activeTab = 'profile';
+		setTimeout(() => {
+			const section = document.getElementById(sectionId);
+			section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			const input = document.getElementById(focusInputId);
+			input?.focus();
+		}, 0);
+	}
+
+	async function deleteAllData() {
+		error = '';
+		try {
+			await api('/api/data/reset', { method: 'DELETE' });
+			await refreshData();
+			confirmingDeleteAllData = false;
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
+	function parseLegacyModules(rawModules) {
+		if (!rawModules) return [];
+		try {
+			const parsed = JSON.parse(rawModules);
+			if (!Array.isArray(parsed)) return [];
+			if (parsed.length > 0 && typeof parsed[0] === 'string') {
+				return parsed.map((name) => ({ name, color: MODULE_COLORS[0], semesterId: '' }));
+			}
+			return parsed;
+		} catch {
+			return [];
+		}
+	}
+
+	async function migrateLegacyLocalStorageIfNeeded() {
+		let settingsDoc;
+		let semestersInDb;
+		let modulesInDb;
+		try {
+			[settingsDoc, semestersInDb, modulesInDb] = await Promise.all([
+				api('/api/settings'),
+				api('/api/semesters'),
+				api('/api/modules')
+			]);
+		} catch {
+			return;
+		}
+
+		if (Number(settingsDoc.migrationVersion || 0) >= 1) return;
+
+		const legacySemesters = JSON.parse(localStorage.getItem('mySemesters') || '[]');
+		const legacyModules = parseLegacyModules(localStorage.getItem('myModules'));
+		const hasLegacyData = legacySemesters.length > 0 || legacyModules.length > 0 || localStorage.getItem('userName');
+		const hasDbData = semestersInDb.length > 0 || modulesInDb.length > 0;
+
+		if (!hasLegacyData || hasDbData) {
+			await api('/api/settings', {
+				method: 'PUT',
+				body: JSON.stringify({
+					...settingsDoc,
+					migrationVersion: 1
+				})
+			});
+			return;
+		}
+
+		const legacyActiveSemesterId = localStorage.getItem('activeSemesterId') || '';
+		const semesterMap = new Map();
+		for (const sem of legacySemesters) {
+			if (!sem?.name) continue;
+			const created = await api('/api/semesters', {
+				method: 'POST',
+				body: JSON.stringify({
+					name: String(sem.name),
+					color: String(sem.color || MODULE_COLORS[0]),
+					isActive: sem.id === legacyActiveSemesterId
+				})
+			});
+			semesterMap.set(String(sem.id || sem.name), String(created._id));
+		}
+
+		const firstSemesterId = semesterMap.values().next().value || '';
+		for (const mod of legacyModules) {
+			if (!mod?.name) continue;
+			const mappedSemesterId = semesterMap.get(String(mod.semesterId || '')) || firstSemesterId;
+			if (!mappedSemesterId) continue;
+			await api('/api/modules', {
+				method: 'POST',
+				body: JSON.stringify({
+					name: String(mod.name),
+					color: String(mod.color || MODULE_COLORS[0]),
+					semesterId: mappedSemesterId
+				})
+			});
+		}
+
+		const activeMappedId = semesterMap.get(legacyActiveSemesterId) || firstSemesterId;
+		await api('/api/settings', {
+			method: 'PUT',
+			body: JSON.stringify({
+				userName: localStorage.getItem('userName') || '',
+				darkMode: localStorage.getItem('darkMode') === 'true',
+				focusDuration: Number(localStorage.getItem('focusDuration') || '25'),
+				weeklyGoalHours: Number(localStorage.getItem('weeklyGoalHours') || '10'),
+				activeSemesterId: activeMappedId || '',
+				migrationVersion: 1
+			})
+		});
+
+		const modulesAfterMigration = normalizeModules(await api('/api/modules'));
+		const moduleNameToSemester = new Map(modulesAfterMigration.map((m) => [m.name, m.semesterId]));
+		const allTasks = await api('/api/tasks');
+		for (const task of allTasks) {
+			if (task.semesterId) continue;
+			const inferredSemesterId = moduleNameToSemester.get(task.module || task.moduleName || '') || activeMappedId;
+			if (!inferredSemesterId) continue;
+			const taskId = asId(task._id);
+			if (!taskId) continue;
+			await api(`/api/tasks/${taskId}`, {
+				method: 'PATCH',
+				body: JSON.stringify({
+					semesterId: inferredSemesterId
+				})
+			});
+		}
 	}
 
 	$effect(() => {
@@ -484,9 +1019,12 @@
 	});
 
 	onMount(() => {
-		userName = localStorage.getItem('userName') || '';
-		darkMode = localStorage.getItem('darkMode') === 'true';
-		refreshData();
+		(async () => {
+			await migrateLegacyLocalStorageIfNeeded();
+			await refreshData();
+			focusSecondsLeft = focusDuration * 60;
+			taskForm = buildNewTaskFormDefaults();
+		})();
 	});
 	onDestroy(() => stopFocus());
 </script>
@@ -528,6 +1066,28 @@
 								<p class="text-secondary small mb-1">Diese Woche erledigt</p>
 								<p class="fw-semibold mb-0 h5">{thisWeekCompleted}</p>
 							</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="card rounded-4 border-0 shadow-sm mb-3">
+					<div class="card-body">
+						<p class="text-secondary small mb-2">Quick Actions</p>
+						<div class="d-flex gap-2">
+							<button
+								class="btn btn-outline-primary rounded-pill flex-grow-1"
+								type="button"
+								onclick={() => openProfileQuicklink('profile-semester-section', 'add-semester-input')}
+							>
+								<i class="bi bi-mortarboard me-1"></i>Semester hinzufügen
+							</button>
+							<button
+								class="btn btn-outline-primary rounded-pill flex-grow-1"
+								type="button"
+								onclick={() => openProfileQuicklink('profile-module-section', 'add-module-input')}
+							>
+								<i class="bi bi-journal-bookmark me-1"></i>Modul hinzufügen
+							</button>
 						</div>
 					</div>
 				</div>
@@ -594,8 +1154,11 @@
 
 				<!-- Sub-view: LIST -->
 				{#if taskSubView === 'list'}
+					<p class="small text-secondary mb-2">
+						<i class="bi bi-mortarboard me-1"></i>Aktives Semester: <strong>{activeSemester?.name || 'Kein Semester gewählt'}</strong>
+					</p>
 					<div class="d-flex gap-2 mb-3">
-						<button class="btn btn-primary rounded-pill flex-grow-1" onclick={() => (taskSubView = 'new')}>
+						<button class="btn btn-primary rounded-pill flex-grow-1" onclick={openNewTaskForm}>
 							<i class="bi bi-plus-lg me-1"></i>Neue Aufgabe
 						</button>
 						<button class="btn btn-outline-primary rounded-pill flex-grow-1" onclick={() => (taskSubView = 'import')}>
@@ -603,26 +1166,27 @@
 						</button>
 					</div>
 
-					<!-- Sort & Filter -->
-					<div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
-						<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskSortBy}>
-							<option value="priority">Sortierung: Priorität</option>
-							<option value="dueDate">Sortierung: Deadline</option>
-							<option value="duration">Sortierung: Dauer</option>
-						</select>
-						<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskFilterModule}>
-							<option value="">Alle Module</option>
-							{#each modules as mod}
-								<option value={mod}>{mod}</option>
-							{/each}
-						</select>
-						<button
-							class={`btn btn-sm rounded-pill ${showOnlyOpen ? 'btn-primary' : 'btn-outline-secondary'}`}
-							onclick={() => (showOnlyOpen = !showOnlyOpen)}
-						>
-							{showOnlyOpen ? 'Nur offene' : 'Alle'}
-						</button>
-					</div>
+				<!-- Sort & Filter -->
+				<div class="d-flex gap-2 mb-2 align-items-center flex-wrap">
+					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskSortBy}>
+						<option value="priority">Sortierung: Priorität</option>
+						<option value="dueDate">Sortierung: Deadline</option>
+						<option value="duration">Sortierung: Dauer</option>
+					</select>
+					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskFilterModule}>
+						<option value="">Alle Module</option>
+						{#each taskFilterModules as mod}
+							<option value={mod}>{mod}</option>
+						{/each}
+					</select>
+					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskFilterStatus}>
+						<option value="">Alle Status</option>
+						<option value="open">Offen & In Bearbeitung</option>
+						<option value="offen">Offen</option>
+						<option value="in Bearbeitung">In Bearbeitung</option>
+						<option value="erledigt">Erledigt</option>
+					</select>
+				</div>
 
 					{#if filteredSortedTasks.length === 0}
 						<p class="small text-secondary">Keine Aufgaben gefunden.</p>
@@ -656,20 +1220,43 @@
 											{/if}
 										</div>
 									</div>
-									<div class="d-flex gap-2 mt-2 flex-wrap">
-										<button class="btn btn-sm btn-outline-primary rounded-pill" onclick={() => startEditTask(task)}>
-											Bearbeiten
-										</button>
+								<div class="d-flex gap-2 mt-2 flex-wrap align-items-center">
+									<button
+										class="btn btn-sm btn-outline-primary rounded-pill"
+										onclick={() => startEditTask(task)}
+										aria-label="Aufgabe bearbeiten"
+										title="Bearbeiten"
+										type="button"
+									>
+										<i class="bi bi-pencil" aria-hidden="true"></i>
+									</button>
+									<button
+										class="btn btn-sm btn-outline-success rounded-pill"
+										onclick={() => setTaskStatus(task, task.status === 'erledigt' ? 'offen' : 'erledigt')}
+										aria-label={task.status === 'erledigt' ? 'Aufgabe wieder öffnen' : 'Als erledigt markieren'}
+										title={task.status === 'erledigt' ? 'Wieder öffnen' : 'Als erledigt markieren'}
+										type="button"
+									>
+										<i class={`bi ${task.status === 'erledigt' ? 'bi-arrow-counterclockwise' : 'bi-check2-circle'}`} aria-hidden="true"></i>
+									</button>
+									{#if deletingTaskId === task._id}
+										<div class="d-flex align-items-center gap-2 ms-1">
+											<span class="small text-danger fw-semibold">Wirklich löschen?</span>
+											<button class="btn btn-sm btn-danger rounded-pill" onclick={() => deleteTask(task._id)}>Ja</button>
+											<button class="btn btn-sm btn-outline-secondary rounded-pill" onclick={cancelDeleteTask}>Nein</button>
+										</div>
+									{:else}
 										<button
-											class="btn btn-sm btn-outline-success rounded-pill"
-											onclick={() => setTaskStatus(task, task.status === 'erledigt' ? 'offen' : 'erledigt')}
+											class="btn btn-sm btn-outline-danger rounded-pill"
+											onclick={() => confirmDeleteTask(task._id)}
+											aria-label="Aufgabe löschen"
+											title="Löschen"
+											type="button"
 										>
-											{task.status === 'erledigt' ? 'Wieder öffnen' : 'Als erledigt markieren'}
+											<i class="bi bi-trash" aria-hidden="true"></i>
 										</button>
-										<button class="btn btn-sm btn-outline-danger rounded-pill" onclick={() => deleteTask(task._id)}>
-											Löschen
-										</button>
-									</div>
+									{/if}
+								</div>
 								</div>
 							</div>
 						{/each}
@@ -691,8 +1278,16 @@
 									<label class="form-label small" for="new-title">Titel</label>
 									<input id="new-title" class="form-control rounded-3" bind:value={taskForm.title} required placeholder="z.B. API-Doku fertigstellen" />
 								</div>
-								<div class="col-6">
-									<label class="form-label small" for="new-module">Modul</label>
+							<div class="col-6">
+								<label class="form-label small" for="new-module">Modul</label>
+								{#if activeModules.length > 0}
+									<select id="new-module" class="form-select rounded-3" bind:value={taskForm.module}>
+										<option value="">Bitte wählen</option>
+										{#each activeModules as mod}
+											<option value={mod.name}>{mod.name}</option>
+										{/each}
+									</select>
+								{:else}
 									<input
 										id="new-module"
 										class="form-control rounded-3"
@@ -702,11 +1297,12 @@
 										autocomplete="off"
 									/>
 									<datalist id="modules-datalist">
-										{#each modules as mod}
+										{#each allModuleNames as mod}
 											<option value={mod}></option>
 										{/each}
 									</datalist>
-								</div>
+								{/if}
+							</div>
 								<div class="col-6">
 									<label class="form-label small" for="new-due">Deadline / Abgabefrist</label>
 									<input id="new-due" class="form-control rounded-3" type="date" bind:value={taskForm.dueDate} />
@@ -756,8 +1352,16 @@
 									<label class="form-label small" for="edit-title">Titel</label>
 									<input id="edit-title" class="form-control rounded-3" bind:value={editTaskForm.title} required />
 								</div>
-								<div class="col-6">
-									<label class="form-label small" for="edit-module">Modul</label>
+							<div class="col-6">
+								<label class="form-label small" for="edit-module">Modul</label>
+								{#if activeModules.length > 0}
+									<select id="edit-module" class="form-select rounded-3" bind:value={editTaskForm.module}>
+										<option value="">Bitte wählen</option>
+										{#each activeModules as mod}
+											<option value={mod.name}>{mod.name}</option>
+										{/each}
+									</select>
+								{:else}
 									<input
 										id="edit-module"
 										class="form-control rounded-3"
@@ -766,11 +1370,12 @@
 										autocomplete="off"
 									/>
 									<datalist id="modules-datalist-edit">
-										{#each modules as mod}
+										{#each allModuleNames as mod}
 											<option value={mod}></option>
 										{/each}
 									</datalist>
-								</div>
+								{/if}
+							</div>
 								<div class="col-6">
 									<label class="form-label small" for="edit-due">Deadline / Abgabefrist</label>
 									<input id="edit-due" class="form-control rounded-3" type="date" bind:value={editTaskForm.dueDate} />
@@ -821,6 +1426,18 @@
 								Deadlines und Abgaben werden automatisch erkannt und als Aufgaben vorgeschlagen –
 								du kannst jeden Eintrag vor dem Übernehmen prüfen und anpassen.
 							</p>
+							<p class="small text-secondary mb-3">
+								<i class="bi bi-info-circle me-1"></i>Wähle einmalig das Modul aus dem aktiven Semester, für das dieser Semesterplan gilt.
+							</p>
+							<div class="mb-3">
+								<label class="form-label small" for="import-module">Modul für diesen Semesterplan</label>
+								<select id="import-module" class="form-select rounded-3" bind:value={importSelectedModule}>
+									<option value="">Bitte wählen</option>
+									{#each activeModules as mod}
+										<option value={mod.name}>{mod.name}</option>
+									{/each}
+								</select>
+							</div>
 
 							<div class="mb-3">
 								<label class="form-label small" for="semesterplan-file">Semesterplan hochladen (Bild oder PDF)</label>
@@ -867,7 +1484,7 @@
 							<button
 								class="btn btn-sm btn-success rounded-pill flex-grow-1"
 								onclick={addAllDeadlinesAsTasks}
-								disabled={adoptingAll}
+								disabled={adoptingAll || !canAdoptAllDeadlines}
 							>
 								<i class="bi bi-check-all me-1"></i>{adoptingAll ? 'Wird übernommen...' : 'Alle übernehmen'}
 							</button>
@@ -883,10 +1500,6 @@
 											<div class="col-12">
 												<label class="form-label small" for={`dl-title-${idx}`}>Titel</label>
 												<input id={`dl-title-${idx}`} class="form-control form-control-sm rounded-3" bind:value={editingDeadlineData.title} />
-											</div>
-											<div class="col-6">
-												<label class="form-label small" for={`dl-module-${idx}`}>Modul</label>
-												<input id={`dl-module-${idx}`} class="form-control form-control-sm rounded-3" bind:value={editingDeadlineData.module} />
 											</div>
 											<div class="col-6">
 												<label class="form-label small" for={`dl-date-${idx}`}>Deadline</label>
@@ -908,11 +1521,19 @@
 									{:else}
 										<p class="fw-semibold mb-1">{item.title}</p>
 										<p class="small text-secondary mb-2">
-											{item.module || '—'} · {item.dueDate ? formatDate(item.dueDate) : 'Kein Datum'}
+											{item.dueDate ? formatDate(item.dueDate) : 'Kein Datum'}
 											· Prio {item.priority || '3'}
 										</p>
+										<div class="mb-2">
+											<p class="small text-secondary mb-0">
+												Modul: <strong>{importSelectedModule || 'Bitte oben auswählen'}</strong>
+											</p>
+											{#if item.detectedModule}
+												<p class="small text-secondary mb-0 mt-1">OCR Vorschlag: {item.detectedModule}</p>
+											{/if}
+										</div>
 										<div class="d-flex gap-2 flex-wrap">
-											<button class="btn btn-sm btn-success rounded-pill" onclick={() => addDeadlineAsTask(item, idx)}>
+											<button class="btn btn-sm btn-success rounded-pill" onclick={() => addDeadlineAsTask(item, idx)} disabled={!importSelectedModule}>
 												Zur Aufgabenliste hinzufügen
 											</button>
 											<button class="btn btn-sm btn-outline-primary rounded-pill" onclick={() => startEditDeadline(idx)}>
@@ -932,7 +1553,7 @@
 
 			<!-- ==================== FOCUS ==================== -->
 			{#if activeTab === 'focus'}
-				<div class="card rounded-4 border-0 shadow-sm mb-3">
+				<div id="profile-semester-section" class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body text-center">
 						<h2 class="h5 mb-3">Fokus Timer</h2>
 						<div class="mb-3">
@@ -970,9 +1591,33 @@
 						</div>
 						<p class="small text-secondary mb-2">{selectedTask ? selectedTask.title : 'Keine Aufgabe ausgewählt'}</p>
 						<div class="d-flex justify-content-center gap-2">
-							<button class="btn btn-primary rounded-pill px-4" onclick={startFocus}>Start</button>
-							<button class="btn btn-outline-secondary rounded-pill px-4" onclick={pauseFocus}>Pause</button>
-							<button class="btn btn-outline-dark rounded-pill px-4" onclick={resetFocus}>Reset</button>
+							<button
+								class="btn btn-primary rounded-pill px-3"
+								onclick={startFocus}
+								type="button"
+								aria-label="Start"
+								title="Start"
+							>
+								<i class="bi bi-play-fill" aria-hidden="true"></i>
+							</button>
+							<button
+								class="btn btn-outline-secondary rounded-pill px-3"
+								onclick={pauseFocus}
+								type="button"
+								aria-label="Pause"
+								title="Pause"
+							>
+								<i class="bi bi-pause-fill" aria-hidden="true"></i>
+							</button>
+							<button
+								class={`btn rounded-pill px-3 ${darkMode ? 'btn-outline-light' : 'btn-outline-dark'}`}
+								onclick={resetFocus}
+								type="button"
+								aria-label="Reset"
+								title="Reset"
+							>
+								<i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+							</button>
 						</div>
 					</div>
 				</div>
@@ -1007,14 +1652,22 @@
 
 			<!-- ==================== PROGRESS ==================== -->
 			{#if activeTab === 'progress'}
-				<h2 class="h5 mb-3">Mein Fortschritt</h2>
+				<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+					<h2 class="h5 mb-0">Mein Fortschritt</h2>
+					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={progressFilterSemester}>
+						<option value="">Alle Semester</option>
+						{#each mySemesters as sem}
+							<option value={sem.id}>{sem.name}</option>
+						{/each}
+					</select>
+				</div>
 
 				<div class="row g-2 mb-3">
 					<div class="col-6">
 						<div class="card metric-card rounded-4 text-center">
 							<div class="card-body py-3">
 								<p class="small text-secondary mb-1">Aufgaben</p>
-								<p class="h5 mb-0">{completedTasks.length} / {tasks.length}</p>
+								<p class="h5 mb-0">{progressCompletedTasks.length} / {progressTasks.length}</p>
 							</div>
 						</div>
 					</div>
@@ -1022,22 +1675,47 @@
 						<div class="card metric-card rounded-4 text-center">
 							<div class="card-body py-3">
 								<p class="small text-secondary mb-1">Fokuszeit gesamt</p>
-								<p class="h5 mb-0">{totalFocusMinutes} min</p>
+								<p class="h5 mb-0">{progressTotalFocusMinutes} min</p>
 							</div>
 						</div>
 					</div>
 				</div>
+
+				<!-- Weekly focus goal -->
+				{#if weeklyGoalHours > 0}
+					{@const goalMinutes = weeklyGoalHours * 60}
+					{@const goalPct = Math.min(100, Math.round((progressThisWeekFocusMinutes / goalMinutes) * 100))}
+					<div class="card rounded-4 border-0 shadow-sm mb-3">
+						<div class="card-body">
+							<div class="d-flex justify-content-between align-items-center mb-2">
+								<h3 class="h6 mb-0">Wochenziel Fokuszeit</h3>
+								<span class="small text-secondary">{progressThisWeekFocusMinutes} / {goalMinutes} min</span>
+							</div>
+							<div class="progress" style="height: 10px;">
+								<div
+									class="progress-bar {goalPct >= 100 ? 'bg-success' : 'bg-primary'}"
+									style="width: {goalPct}%;"
+									role="progressbar"
+									aria-valuenow={goalPct}
+									aria-valuemin="0"
+									aria-valuemax="100"
+								></div>
+							</div>
+							<p class="small text-secondary mt-1 mb-0">{goalPct}% erreicht · Ziel: {weeklyGoalHours} Std./Woche</p>
+						</div>
+					</div>
+				{/if}
 
 				<!-- Weekly chart -->
 				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
 						<h3 class="h6 mb-3">Erledigte Aufgaben diese Woche</h3>
 						<div class="d-flex align-items-end gap-1" style="height: 72px;">
-							{#each weeklyData as day}
+							{#each progressWeeklyData as day}
 								<div class="flex-grow-1 d-flex flex-column align-items-center gap-1">
 									<div
 										class={`rounded-top w-100 ${day.isToday ? 'bg-primary' : 'bg-secondary bg-opacity-25'}`}
-										style="height: {Math.max(4, Math.round((day.count / maxWeeklyCount) * 52))}px; transition: height 0.3s;"
+										style="height: {Math.max(4, Math.round((day.count / progressMaxWeeklyCount) * 52))}px; transition: height 0.3s;"
 									></div>
 									<span class={`small ${day.isToday ? 'fw-bold text-primary' : 'text-secondary'}`} style="font-size: 10px;">
 										{day.label}
@@ -1049,11 +1727,11 @@
 				</div>
 
 				<!-- Module progress -->
-				{#if moduleStats.length > 0}
+				{#if progressModuleStats.length > 0}
 					<div class="card rounded-4 border-0 shadow-sm mb-3">
 						<div class="card-body">
 							<h3 class="h6 mb-3">Fortschritt nach Modul</h3>
-							{#each moduleStats as stat}
+							{#each progressModuleStats as stat}
 								<div class="mb-3">
 									<div class="d-flex justify-content-between align-items-center mb-1">
 										<div class="d-flex align-items-center gap-2">
@@ -1085,15 +1763,15 @@
 							<h3 class="h6 mb-0">Abgeschlossene Aufgaben</h3>
 							<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={progressFilterModule}>
 								<option value="">Alle Module</option>
-								{#each modules as mod}
+								{#each progressModules as mod}
 									<option value={mod}>{mod}</option>
 								{/each}
 							</select>
 						</div>
-						{#if filteredCompletedTasks.length === 0}
+						{#if filteredProgressCompletedTasks.length === 0}
 							<p class="small text-secondary mb-0">Noch keine Aufgaben abgeschlossen.</p>
 						{:else}
-							{#each filteredCompletedTasks as task}
+							{#each filteredProgressCompletedTasks as task}
 								{@const ref = reflections.find((r) => r.taskId === task._id)}
 								{@const diff = ref ? Number(ref.focusMinutes) - Number(task.duration) : null}
 								<div class="border-bottom pb-2 mb-2">
@@ -1130,6 +1808,8 @@
 
 			<!-- ==================== PROFILE ==================== -->
 			{#if activeTab === 'profile'}
+
+				<!-- General settings -->
 				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
 						<h2 class="h5 mb-3">Einstellungen</h2>
@@ -1142,6 +1822,43 @@
 								placeholder="z.B. Manuel"
 								bind:value={userName}
 							/>
+						</div>
+
+						<div class="mb-3">
+							<label class="form-label small fw-semibold" for="setting-focus-duration">Standard-Fokuszeit (Minuten)</label>
+							<div class="d-flex gap-2 mb-2 flex-wrap">
+								{#each [25, 45, 60, 90] as preset}
+									<button
+										class="btn btn-sm rounded-pill {focusDuration === preset ? 'btn-primary' : 'btn-outline-secondary'}"
+										onclick={() => { focusDuration = preset; }}
+										type="button"
+									>{preset} min</button>
+								{/each}
+							</div>
+							<input
+								id="setting-focus-duration"
+								class="form-control rounded-3"
+								type="number"
+								min="5"
+								max="180"
+								step="5"
+								bind:value={focusDuration}
+							/>
+							<p class="form-text text-secondary small">Wird beim Start jeder Fokus-Session verwendet. Reset setzt den Timer auf diesen Wert zurück.</p>
+						</div>
+
+						<div class="mb-3">
+							<label class="form-label small fw-semibold" for="setting-weekly-goal">Wochenziel Fokuszeit (Stunden)</label>
+							<input
+								id="setting-weekly-goal"
+								class="form-control rounded-3"
+								type="number"
+								min="0"
+								max="80"
+								step="0.5"
+								bind:value={weeklyGoalHours}
+							/>
+							<p class="form-text text-secondary small">Wird im Fortschritts-Tab als Zielbalken angezeigt. 0 = kein Ziel.</p>
 						</div>
 
 						<div class="mb-4">
@@ -1157,7 +1874,7 @@
 										role="switch"
 										id="dark-mode-toggle"
 										bind:checked={darkMode}
-										onchange={saveSettings}
+										onchange={() => saveSettings(false)}
 										style="width: 2.5em; height: 1.25em;"
 									/>
 									<label class="form-check-label visually-hidden" for="dark-mode-toggle">Dark Mode</label>
@@ -1165,38 +1882,231 @@
 							</div>
 						</div>
 
-						<button class="btn btn-primary rounded-pill w-100" onclick={saveSettings}>
-							<i class="bi bi-check-lg me-1"></i>Einstellungen speichern
+						<button
+							class="btn rounded-pill w-100 {settingsSaved ? 'btn-success' : 'btn-primary'}"
+							onclick={saveSettings}
+							style="transition: background-color 0.3s, border-color 0.3s;"
+						>
+							<i class="bi {settingsSaved ? 'bi-check-circle-fill' : 'bi-check-lg'} me-1"></i>
+							{settingsSaved ? 'Gespeichert!' : 'Einstellungen speichern'}
 						</button>
 					</div>
 				</div>
 
-				<div class="card rounded-4 border-0 shadow-sm">
+				<!-- Semester management -->
+				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
-						<h3 class="h6 mb-2">Über StudySprint</h3>
-						<p class="small text-secondary mb-2">Prototyp für Einzelarbeit (ZHAW Prototyping Modul).</p>
-						<ul class="small text-secondary mb-0">
-							<li>Stack: SvelteKit + MongoDB</li>
-							<li>KI-Einsatz: Gemini OCR für Semesterplan-Import</li>
-						</ul>
+						<h3 class="h6 mb-1">Semester</h3>
+						<p class="small text-secondary mb-3">Erstelle Semester und wähle das aktive aus. Module werden pro Semester verwaltet.</p>
+
+						{#if mySemesters.length > 0}
+							<div class="mb-3">
+								<label class="form-label small fw-semibold" for="active-semester">Aktuelles Semester</label>
+								<select
+									id="active-semester"
+									class="form-select rounded-3"
+									bind:value={activeSemesterId}
+									onchange={() => { void setActiveSemester(activeSemesterId); }}
+								>
+									<option value="">Kein Semester gewählt</option>
+									{#each mySemesters as sem}
+										<option value={sem.id}>{sem.name}</option>
+									{/each}
+								</select>
+							</div>
+							<div class="d-flex flex-wrap gap-2 mb-3">
+								{#each mySemesters as sem}
+									{#if deletingSemesterId === sem.id}
+										<div class="d-flex align-items-center gap-2 border rounded-pill px-2 py-1">
+											<span class="small text-danger fw-semibold">Semester "{sem.name}" wirklich löschen?</span>
+											<button class="btn btn-sm btn-danger rounded-pill" type="button" onclick={() => confirmRemoveSemester(sem.id)}>Ja</button>
+											<button class="btn btn-sm btn-outline-secondary rounded-pill" type="button" onclick={cancelRemoveSemester}>Nein</button>
+										</div>
+									{:else}
+										<span class="badge d-flex align-items-center gap-1 px-2 py-2" style="background-color: {sem.color}; color: white; font-size: 13px;">
+											{sem.name}
+											<button
+												type="button"
+												class="btn-close btn-close-white ms-1"
+												style="font-size: 9px;"
+												aria-label="Entfernen"
+												onclick={() => { deletingSemesterId = sem.id; deletingModuleId = ''; }}
+											></button>
+										</span>
+									{/if}
+								{/each}
+							</div>
+						{:else}
+							<p class="small text-secondary mb-3">Noch kein Semester angelegt.</p>
+						{/if}
+
+						<div class="d-flex gap-2 align-items-center">
+							<input
+								id="add-semester-input"
+								class="form-control rounded-3"
+								placeholder="z.B. HS 2025/26"
+								bind:value={newSemesterInput}
+								onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSemester(); } }}
+							/>
+							<div class="d-flex gap-1 flex-shrink-0">
+							{#each MODULE_COLORS.slice(0, 8) as color}
+								<button
+									type="button"
+									class="color-swatch"
+									class:active={newSemesterColor === color}
+									style="background-color: {color};"
+									onclick={() => { newSemesterColor = color; }}
+									title="Farbe wählen"
+									aria-label="Farbe wählen"
+								></button>
+							{/each}
+							</div>
+							<button class="btn btn-outline-primary rounded-pill px-3 flex-shrink-0" onclick={addSemester} type="button" aria-label="Semester hinzufügen" title="Semester hinzufügen">
+								<i class="bi bi-plus-lg"></i>
+							</button>
+						</div>
 					</div>
 				</div>
+
+				<!-- Module management -->
+				<div id="profile-module-section" class="card rounded-4 border-0 shadow-sm mb-3">
+					<div class="card-body">
+						<h3 class="h6 mb-1">Module</h3>
+						{#if !activeSemesterId}
+							<p class="small text-secondary mb-0">Bitte zuerst ein aktives Semester auswählen oder erstellen.</p>
+						{:else}
+							{@const activeSem = mySemesters.find((s) => s.id === activeSemesterId)}
+							<p class="small text-secondary mb-3">Module für <strong>{activeSem?.name ?? ''}</strong></p>
+
+							{#if activeModules.length > 0}
+								<div class="d-flex flex-wrap gap-2 mb-3">
+									{#each activeModules as mod}
+										{#if deletingModuleId === mod.id}
+											<div class="d-flex align-items-center gap-2 border rounded-pill px-2 py-1">
+												<span class="small text-danger fw-semibold">Modul "{mod.name}" wirklich löschen?</span>
+												<button class="btn btn-sm btn-danger rounded-pill" type="button" onclick={() => confirmRemoveModule(mod.id)}>Ja</button>
+												<button class="btn btn-sm btn-outline-secondary rounded-pill" type="button" onclick={cancelRemoveModule}>Nein</button>
+											</div>
+										{:else}
+											<span class="badge d-flex align-items-center gap-1 px-2 py-2" style="background-color: {mod.color}; color: white; font-size: 13px;">
+												{mod.name}
+												<button
+													type="button"
+													class="btn-close btn-close-white ms-1"
+													style="font-size: 9px;"
+													aria-label="Entfernen"
+													onclick={() => { deletingModuleId = mod.id; deletingSemesterId = ''; }}
+												></button>
+											</span>
+										{/if}
+									{/each}
+								</div>
+							{:else}
+								<p class="small text-secondary mb-3">Noch keine Module in diesem Semester.</p>
+							{/if}
+
+							<div class="d-flex gap-2 align-items-center">
+								<input
+									id="add-module-input"
+									class="form-control rounded-3"
+									placeholder="Modul hinzufügen, z.B. Analysis"
+									bind:value={newModuleInput}
+									onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModule(); } }}
+								/>
+								<div class="d-flex gap-1 flex-shrink-0">
+								{#each MODULE_COLORS.slice(0, 8) as color}
+									<button
+										type="button"
+										class="color-swatch"
+										class:active={newModuleColor === color}
+										style="background-color: {color};"
+										onclick={() => { newModuleColor = color; }}
+										title="Farbe wählen"
+										aria-label="Farbe wählen"
+									></button>
+								{/each}
+								</div>
+								<button class="btn btn-outline-primary rounded-pill px-3 flex-shrink-0" onclick={addModule} type="button" aria-label="Modul hinzufügen" title="Modul hinzufügen">
+									<i class="bi bi-plus-lg"></i>
+								</button>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Data management -->
+				<div class="card rounded-4 border-0 shadow-sm border-danger-subtle">
+					<div class="card-body">
+						<h3 class="h6 mb-1 text-danger">Daten zurücksetzen</h3>
+						<p class="small text-secondary mb-3">Diese Aktion kann nicht rückgängig gemacht werden und löscht alle gespeicherten Daten.</p>
+						{#if confirmingDeleteAllData}
+							<div class="d-flex flex-column gap-2">
+								<span class="small text-danger fw-semibold">Wirklich alle Daten (Aufgaben, Reflexionen, Semester, Module, Einstellungen) löschen?</span>
+								<div class="d-flex gap-2">
+									<button class="btn btn-danger rounded-pill flex-grow-1" type="button" onclick={deleteAllData}>Ja, alles löschen</button>
+									<button class="btn btn-outline-secondary rounded-pill flex-grow-1" type="button" onclick={cancelDeleteAllData}>Nein</button>
+								</div>
+							</div>
+						{:else}
+							<button class="btn btn-danger rounded-pill w-100" type="button" onclick={requestDeleteAllData}>
+								<i class="bi bi-exclamation-triangle me-1"></i>Alle Daten löschen
+							</button>
+						{/if}
+					</div>
+				</div>
+
 			{/if}
 		</section>
 
-		<nav class="bottom-nav fixed-bottom bg-white border-top py-2 px-2">
-			<div class="d-flex justify-content-around">
-				{#each tabs as tab}
-					<button
-						class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1"
-						class:btn-primary={activeTab === tab}
-						class:btn-light={activeTab !== tab}
-						onclick={() => { activeTab = tab; if (tab === 'tasks') taskSubView = 'list'; }}
-					>
-						<i class={`bi ${tabIcons[tab]}`}></i>
-						<span style="font-size: 10px;">{tabLabels[tab]}</span>
-					</button>
-				{/each}
-			</div>
-		</nav>
+	<nav class="bottom-nav fixed-bottom border-top py-2 px-2">
+		<div class="d-flex justify-content-around">
+			{#each tabs as tab}
+				<button
+					class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1"
+					class:btn-primary={activeTab === tab}
+					class:btn-light={activeTab !== tab}
+					onclick={() => { activeTab = tab; if (tab === 'tasks') taskSubView = 'list'; }}
+				>
+					<i class={`bi ${tabIcons[tab]}`}></i>
+					<span style="font-size: 10px;">{tabLabels[tab]}</span>
+				</button>
+			{/each}
+		</div>
+	</nav>
 </main>
+
+<style>
+	.bottom-nav {
+		background-color: var(--bs-body-bg);
+		border-top-color: var(--bs-border-color) !important;
+	}
+	:global([data-bs-theme='dark']) .bottom-nav :global(.nav-btn.btn-light) {
+		background-color: #2b3035;
+		border-color: #495057;
+		color: #f8f9fa;
+	}
+	:global([data-bs-theme='dark']) .bottom-nav :global(.nav-btn.btn-light:hover) {
+		background-color: #343a40;
+		border-color: #6c757d;
+	}
+
+	.color-swatch {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 2px solid transparent;
+		padding: 0;
+		cursor: pointer;
+		outline: 2px solid transparent;
+		outline-offset: 2px;
+		transition: outline-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+		flex-shrink: 0;
+	}
+	.color-swatch.active {
+		border-color: #fff;
+		box-shadow: 0 0 0 1px var(--bs-body-color);
+	}
+	.color-swatch:focus-visible {
+		outline-color: var(--bs-primary);
+	}
+</style>

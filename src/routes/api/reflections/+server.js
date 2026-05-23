@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
 
+const ALLOWED_RATINGS = new Set(['Sehr fokussiert', 'Okay', 'Abgelenkt']);
+
 export async function GET() {
 
 	const db = await getDb();
@@ -11,12 +13,16 @@ export async function GET() {
 export async function POST({ request }) {
 
 	const payload = await request.json();
+	const rating = String(payload.rating || 'Okay');
+	if (!ALLOWED_RATINGS.has(rating)) {
+		return json({ error: 'Ungültige Bewertung' }, { status: 400 });
+	}
 	const reflection = {
 		sessionId: payload.sessionId || null,
 		taskId: payload.taskId || null,
-		rating: String(payload.rating || 'Okay'),
+		rating,
 		note: String(payload.note || '').trim(),
-		focusMinutes: Number(payload.focusMinutes || 0),
+		focusMinutes: Math.max(0, Number(payload.focusMinutes || 0)),
 		createdAt: new Date()
 	};
 
