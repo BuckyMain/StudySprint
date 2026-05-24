@@ -7,7 +7,6 @@ function normalizeSettings(payload = {}) {
 	return {
 		userName: String(payload.userName || '').trim(),
 		darkMode: Boolean(payload.darkMode),
-		focusDuration: Math.max(5, Number(payload.focusDuration || 25)),
 		weeklyGoalHours: Math.max(0, Number(payload.weeklyGoalHours || 10)),
 		activeSemesterId: String(payload.activeSemesterId || '').trim(),
 		migrationVersion: Number(payload.migrationVersion || 0),
@@ -23,7 +22,6 @@ export async function GET() {
 			_id: SETTINGS_ID,
 			userName: '',
 			darkMode: false,
-			focusDuration: 25,
 			weeklyGoalHours: 10,
 			activeSemesterId: '',
 			migrationVersion: 0

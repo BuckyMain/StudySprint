@@ -25,7 +25,6 @@
 	// User settings (loaded from backend API on mount)
 	let userName = $state('');
 	let darkMode = $state(false);
-	let focusDuration = $state(25);
 	let weeklyGoalHours = $state(10);
 	let mySemesters = $state([]); // [{ id, name, color }]
 	let activeSemesterId = $state('');
@@ -38,10 +37,14 @@
 
 	// Tasks sub-view: 'list' | 'new' | 'import' | 'edit'
 	let taskSubView = $state('list');
-	let taskSortBy = $state('priority');
+	let taskSortBy = $state('dueDate');
 	let taskFilterModule = $state('');
 	let taskFilterStatus = $state('open');
 	let deletingTaskId = $state(null);
+	let expandedTaskNoteIds = $state(new Set());
+	let creatingTaskModule = $state(false);
+	let taskFormNewModuleName = $state('');
+	let taskFormNewModuleColor = $state(MODULE_COLORS[0]);
 	let deletingSemesterId = $state('');
 	let deletingModuleId = $state('');
 	let confirmingDeleteAllData = $state(false);
@@ -78,20 +81,26 @@
 	let semesterplanImageBase64 = $state('');
 	let semesterplanMimeType = $state('');
 	let ocrLoading = $state(false);
+	let importAnalysisLoading = $state(false);
+	let importAnalysisSource = $state('');
 	let deadlineSuccess = $state('');
 	let adoptingAll = $state(false);
 
 	let selectedTaskId = $state('');
 	let focusSecondsLeft = $state(25 * 60);
+	let focusTargetSeconds = $state(25 * 60);
 	let isFocusRunning = $state(false);
 	let focusTimerHandle = null;
 	let focusHasStarted = $state(false);
+	let focusNoteExpanded = $state(false);
 	let reflectionRating = $state('Okay');
 	let reflectionNote = $state('');
 
 	// Progress filter
 	let progressFilterSemester = $state('');
 	let progressFilterModule = $state('');
+	let progressPeriod = $state('week');
+	let expandedProgressTaskIds = $state(new Set());
 
 	const completedTasks = $derived(tasks.filter((t) => t.status === 'erledigt'));
 	const openTasks = $derived(tasks.filter((t) => t.status !== 'erledigt'));
@@ -99,16 +108,6 @@
 		reflections.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0)
 	);
 	const selectedTask = $derived(tasks.find((t) => t._id === selectedTaskId) ?? null);
-
-	const nearestDeadline = $derived(
-		[...openTasks]
-			.filter((t) => t.dueDate)
-			.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0] ?? null
-	);
-
-	const highestPriorityTask = $derived(
-		[...openTasks].sort((a, b) => Number(a.priority) - Number(b.priority))[0] ?? null
-	);
 
 	const modules = $derived([...new Set(tasks.map((t) => t.module).filter(Boolean))]);
 	const allModuleNames = $derived([...new Set([...myModules.map((m) => m.name), ...modules])]);
@@ -120,6 +119,21 @@
 		if (!activeSemesterId) return tasks;
 		return tasks.filter((t) => taskBelongsToSemester(t, activeSemesterId));
 	});
+	const homeTasks = $derived(tasksInActiveSemester);
+	const homeTaskIds = $derived.by(() => new Set(homeTasks.map((t) => String(t._id))));
+	const homeOpenTasks = $derived(homeTasks.filter((t) => t.status !== 'erledigt'));
+	const nearestDeadline = $derived.by(() => {
+		const todayStart = startOfLocalDay();
+		return [...homeOpenTasks]
+			.filter((t) => {
+				const due = parseDateValue(t.dueDate);
+				return due && due >= todayStart;
+			})
+			.sort((a, b) => parseDateValue(a.dueDate) - parseDateValue(b.dueDate))[0] ?? null;
+	});
+	const highestPriorityTask = $derived(
+		[...homeOpenTasks].sort((a, b) => Number(a.priority) - Number(b.priority))[0] ?? null
+	);
 	const taskFilterModules = $derived([
 		...new Set(tasksInActiveSemester.map((t) => t.module).filter(Boolean))
 	]);
@@ -144,36 +158,83 @@
 		if (taskFilterStatus === 'open') list = list.filter((t) => t.status !== 'erledigt');
 		else if (taskFilterStatus) list = list.filter((t) => t.status === taskFilterStatus);
 		if (taskFilterModule) list = list.filter((t) => t.module === taskFilterModule);
+		const compareByTitle = (a, b) =>
+			String(a.title || '').localeCompare(String(b.title || ''), 'de', { sensitivity: 'base' });
 		return [...list].sort((a, b) => {
-			if (taskSortBy === 'priority') return Number(a.priority) - Number(b.priority);
-			if (taskSortBy === 'dueDate') {
-				if (!a.dueDate && !b.dueDate) return 0;
-				if (!a.dueDate) return 1;
-				if (!b.dueDate) return -1;
-				return new Date(a.dueDate) - new Date(b.dueDate);
+			if (taskSortBy === 'priority') {
+				const priorityDiff = Number(a.priority) - Number(b.priority);
+				if (priorityDiff !== 0) return priorityDiff;
+				const dueA = parseDateValue(a.dueDate);
+				const dueB = parseDateValue(b.dueDate);
+				if (dueA && dueB) {
+					const dueDiff = dueA - dueB;
+					if (dueDiff !== 0) return dueDiff;
+				} else if (dueA && !dueB) return -1;
+				else if (!dueA && dueB) return 1;
+				return compareByTitle(a, b);
 			}
-			if (taskSortBy === 'duration') return Number(a.duration) - Number(b.duration);
-			return 0;
+			if (taskSortBy === 'dueDate') {
+				const dueA = parseDateValue(a.dueDate);
+				const dueB = parseDateValue(b.dueDate);
+				if (!dueA && !dueB) {
+					const priorityDiff = Number(a.priority) - Number(b.priority);
+					if (priorityDiff !== 0) return priorityDiff;
+					return compareByTitle(a, b);
+				}
+				if (!dueA) return 1;
+				if (!dueB) return -1;
+				const dueDiff = dueA - dueB;
+				if (dueDiff !== 0) return dueDiff;
+				const priorityDiff = Number(a.priority) - Number(b.priority);
+				if (priorityDiff !== 0) return priorityDiff;
+				return compareByTitle(a, b);
+			}
+			if (taskSortBy === 'duration') {
+				const durationDiff = Number(a.duration) - Number(b.duration);
+				if (durationDiff !== 0) return durationDiff;
+				return compareByTitle(a, b);
+			}
+			return compareByTitle(a, b);
 		});
 	});
 
 	const upcomingTasks = $derived.by(() => {
-		const now = new Date();
-		const nextWeek = new Date(now.getTime() + 7 * 86400000);
-		return [...openTasks]
-			.filter((t) => t.dueDate && new Date(t.dueDate) <= nextWeek)
-			.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+		const { weekStart, weekEnd } = getWeekRange(new Date());
+		return [...homeOpenTasks]
+			.filter((t) => {
+				const due = parseDateValue(t.dueDate);
+				return due && due >= weekStart && due < weekEnd;
+			})
+			.sort((a, b) => parseDateValue(a.dueDate) - parseDateValue(b.dueDate))
 			.slice(0, 5);
+	});
+	const overdueTasks = $derived.by(() => {
+		const todayStart = startOfLocalDay();
+		return [...homeOpenTasks]
+			.filter((t) => {
+				const due = parseDateValue(t.dueDate);
+				return due && due < todayStart;
+			})
+			.sort((a, b) => parseDateValue(a.dueDate) - parseDateValue(b.dueDate));
 	});
 
 	const thisWeekCompleted = $derived.by(() => {
-		const now = new Date();
-		const dow = now.getDay();
-		const diffToMon = dow === 0 ? -6 : 1 - dow;
-		const weekStart = new Date(now);
-		weekStart.setDate(now.getDate() + diffToMon);
-		weekStart.setHours(0, 0, 0, 0);
-		return reflections.filter((r) => new Date(r.createdAt) >= weekStart).length;
+		const { weekStart, weekEnd } = getWeekRange(new Date());
+		const completedTaskIds = new Set(
+			homeTasks
+				.filter((t) => t.status === 'erledigt')
+				.map((t) => String(t._id))
+		);
+		const weeklyCompletedTaskIds = new Set();
+		for (const r of reflections) {
+			const created = new Date(r.createdAt);
+			const taskId = r.taskId ? String(r.taskId) : '';
+			if (Number.isNaN(created.getTime()) || !taskId) continue;
+			if (created < weekStart || created >= weekEnd) continue;
+			if (!homeTaskIds.has(taskId) || !completedTaskIds.has(taskId)) continue;
+			weeklyCompletedTaskIds.add(taskId);
+		}
+		return weeklyCompletedTaskIds.size;
 	});
 
 	const weeklyData = $derived.by(() => {
@@ -205,43 +266,90 @@
 		if (!progressFilterSemester) return reflections;
 		return reflections.filter((r) => r.taskId && progressTaskIds.has(String(r.taskId)));
 	});
-	const progressCompletedTasks = $derived(progressTasks.filter((t) => t.status === 'erledigt'));
-	const progressModules = $derived([...new Set(progressTasks.map((t) => t.module).filter(Boolean))]);
-	const progressTotalFocusMinutes = $derived(
-		progressReflections.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0)
+	const progressPeriodRange = $derived.by(() => getProgressPeriodRange(progressPeriod));
+	const progressPeriodReflections = $derived.by(() => {
+		if (progressPeriod === 'semester') return progressReflections;
+		const { start, end } = progressPeriodRange;
+		return progressReflections.filter((r) => {
+			const created = new Date(r.createdAt);
+			return !Number.isNaN(created.getTime()) && created >= start && created < end;
+		});
+	});
+	const progressPeriodTaskIds = $derived.by(
+		() => new Set(progressPeriodReflections.map((r) => String(r.taskId || '')).filter(Boolean))
 	);
-	const progressThisWeekFocusMinutes = $derived.by(() => {
+	const progressPeriodTasks = $derived.by(() =>
+		progressTasks.filter((t) => progressPeriodTaskIds.has(String(t._id)))
+	);
+	const progressCompletedTasks = $derived.by(() =>
+		progressTasks.filter(
+			(t) => t.status === 'erledigt' && progressPeriodTaskIds.has(String(t._id))
+		)
+	);
+	const progressModules = $derived([
+		...new Set(progressPeriodTasks.map((t) => t.module).filter(Boolean))
+	]);
+	const progressPeriodFocusMinutes = $derived(
+		progressPeriodReflections.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0)
+	);
+	const progressChartData = $derived.by(() => {
 		const now = new Date();
-		const dow = now.getDay();
-		const diffToMon = dow === 0 ? -6 : 1 - dow;
-		const weekStart = new Date(now);
-		weekStart.setDate(now.getDate() + diffToMon);
-		weekStart.setHours(0, 0, 0, 0);
-		return progressReflections
-			.filter((r) => new Date(r.createdAt) >= weekStart)
-			.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0);
-	});
-	const progressWeeklyData = $derived.by(() => {
-		const labels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-		const counts = Array(7).fill(0);
-		const now = new Date();
-		const dow = now.getDay();
-		const diffToMon = dow === 0 ? -6 : 1 - dow;
-		const weekStart = new Date(now);
-		weekStart.setDate(now.getDate() + diffToMon);
-		weekStart.setHours(0, 0, 0, 0);
-		const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
-		for (const r of progressReflections) {
-			const d = new Date(r.createdAt);
-			if (d >= weekStart && d < weekEnd) counts[(d.getDay() + 6) % 7]++;
+		if (progressPeriod === 'week') {
+			const labels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+			const taskSets = Array.from({ length: 7 }, () => new Set());
+			const { start, end } = getProgressPeriodRange('week', now);
+			for (const r of progressPeriodReflections) {
+				const d = new Date(r.createdAt);
+				const taskId = String(r.taskId || '');
+				if (!taskId) continue;
+				if (d >= start && d < end) taskSets[(d.getDay() + 6) % 7].add(taskId);
+			}
+			const todayIdx = (now.getDay() + 6) % 7;
+			return labels.map((label, i) => ({ label, count: taskSets[i].size, isToday: i === todayIdx }));
 		}
-		const todayIdx = (now.getDay() + 6) % 7;
-		return labels.map((label, i) => ({ label, count: counts[i], isToday: i === todayIdx }));
+		if (progressPeriod === 'semester') {
+			const taskSetsByMonth = new Map();
+			for (const r of progressPeriodReflections) {
+				const d = new Date(r.createdAt);
+				const taskId = String(r.taskId || '');
+				if (Number.isNaN(d.getTime()) || !taskId) continue;
+				const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+				if (!taskSetsByMonth.has(key)) taskSetsByMonth.set(key, new Set());
+				taskSetsByMonth.get(key).add(taskId);
+			}
+			const keys = [...taskSetsByMonth.keys()].sort();
+			const visibleKeys = keys.slice(-6);
+			if (visibleKeys.length === 0) {
+				return [{ label: '—', count: 0, isToday: false }];
+			}
+			return visibleKeys.map((key) => {
+				const [year, month] = key.split('-').map(Number);
+				const date = new Date(year, month - 1, 1);
+				return {
+					label: date.toLocaleDateString('de-CH', { month: 'short' }),
+					count: taskSetsByMonth.get(key)?.size || 0,
+					isToday: false
+				};
+			});
+		}
+		const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+		const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+		const labels = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6'];
+		const taskSets = Array.from({ length: labels.length }, () => new Set());
+		for (const r of progressPeriodReflections) {
+			const d = new Date(r.createdAt);
+			const taskId = String(r.taskId || '');
+			if (!taskId) continue;
+			if (Number.isNaN(d.getTime()) || d < monthStart || d >= monthEnd) continue;
+			const weekIdx = Math.min(labels.length - 1, Math.floor((d.getDate() - 1) / 7));
+			taskSets[weekIdx].add(taskId);
+		}
+		return labels.map((label, i) => ({ label, count: taskSets[i].size, isToday: false }));
 	});
-	const progressMaxWeeklyCount = $derived(Math.max(1, ...progressWeeklyData.map((d) => d.count)));
+	const progressMaxChartCount = $derived(Math.max(1, ...progressChartData.map((d) => d.count)));
 	const progressModuleStats = $derived.by(() => {
 		return progressModules.map((mod) => {
-			const modTasks = progressTasks.filter((t) => t.module === mod);
+			const modTasks = progressPeriodTasks.filter((t) => t.module === mod);
 			const modDone = modTasks.filter((t) => t.status === 'erledigt').length;
 			const pct = modTasks.length ? Math.round((modDone / modTasks.length) * 100) : 0;
 			return { mod, total: modTasks.length, done: modDone, pct, color: getModuleColor(mod) };
@@ -250,6 +358,13 @@
 	const filteredProgressCompletedTasks = $derived.by(() => {
 		if (!progressFilterModule) return progressCompletedTasks;
 		return progressCompletedTasks.filter((t) => t.module === progressFilterModule);
+	});
+	const progressOverUnderMinutes = $derived.by(() => {
+		return filteredProgressCompletedTasks.reduce((sum, task) => {
+			const taskRefs = getTaskReflectionsForPeriod(task._id);
+			const spent = taskRefs.reduce((acc, r) => acc + Number(r.focusMinutes || 0), 0);
+			return sum + (spent - Number(task.duration || 0));
+		}, 0);
 	});
 
 	$effect(() => {
@@ -291,7 +406,7 @@
 			title: '',
 			module: '',
 			dueDate: '',
-			duration: Number(focusDuration) || 25,
+			duration: 25,
 			priority: '3',
 			notes: '',
 			semesterId: activeSemesterId || '',
@@ -301,7 +416,14 @@
 
 	function openNewTaskForm() {
 		taskForm = buildNewTaskFormDefaults();
+		creatingTaskModule = false;
+		taskFormNewModuleName = '';
+		taskFormNewModuleColor = MODULE_COLORS[0];
 		taskSubView = 'new';
+	}
+
+	function getFocusTargetSeconds(task = selectedTask) {
+		return Number(task?.duration || 25) * 60;
 	}
 
 	function priorityBadgeClass(p) {
@@ -311,6 +433,57 @@
 		if (n === 3) return 'text-bg-primary';
 		if (n === 4) return 'text-bg-info text-dark';
 		return 'text-bg-secondary';
+	}
+
+	function priorityBadgeClassNeutral() {
+		return 'text-body border';
+	}
+
+	function getProgressPeriodRange(period = progressPeriod, referenceDate = new Date()) {
+		if (period === 'semester') {
+			return {
+				start: new Date(1970, 0, 1),
+				end: new Date(9999, 11, 31)
+			};
+		}
+		if (period === 'month') {
+			const start = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+			const end = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
+			return { start, end };
+		}
+		const { weekStart, weekEnd } = getWeekRange(referenceDate);
+		return { start: weekStart, end: weekEnd };
+	}
+
+	function formatDateShort(value) {
+		const d = value instanceof Date ? value : new Date(value);
+		if (Number.isNaN(d.getTime())) return '';
+		return d.toLocaleDateString('de-CH');
+	}
+
+	function formatProgressPeriodLabel() {
+		if (progressPeriod === 'semester') {
+			const selected = mySemesters.find((s) => s.id === progressFilterSemester);
+			return selected ? `Gesamtes Semester: ${selected.name}` : 'Gesamtes ausgewähltes Semester';
+		}
+		const { start, end } = progressPeriodRange;
+		const inclusiveEnd = new Date(end);
+		inclusiveEnd.setDate(inclusiveEnd.getDate() - 1);
+		return `${formatDateShort(start)} – ${formatDateShort(inclusiveEnd)}`;
+	}
+
+	function getTaskReflectionsForPeriod(taskId) {
+		return progressPeriodReflections
+			.filter((r) => String(r.taskId || '') === String(taskId))
+			.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+	}
+
+	function toggleProgressTaskDetails(taskId) {
+		const next = new Set(expandedProgressTaskIds);
+		const normalizedId = String(taskId);
+		if (next.has(normalizedId)) next.delete(normalizedId);
+		else next.add(normalizedId);
+		expandedProgressTaskIds = next;
 	}
 
 	function statusBadgeClass(status) {
@@ -390,7 +563,6 @@
 
 			userName = String(settingsData.userName || '');
 			darkMode = Boolean(settingsData.darkMode);
-			focusDuration = Number(settingsData.focusDuration || 25);
 			weeklyGoalHours = Number(settingsData.weeklyGoalHours || 10);
 
 			const preferredActiveSemesterId = String(settingsData.activeSemesterId || '');
@@ -419,22 +591,78 @@
 				error = 'Bitte zuerst ein aktives Semester im Profil auswählen.';
 				return;
 			}
-			const selectedModule = activeModules.find((m) => m.name === taskForm.module);
+			const moduleName = String(
+				creatingTaskModule ? taskFormNewModuleName : taskForm.module
+			).trim();
+			if (!moduleName) {
+				error = 'Bitte ein Modul auswählen oder neu anlegen.';
+				return;
+			}
+			let selectedModule = activeModules.find((m) => m.name === moduleName);
+			if (!selectedModule) {
+				const createdModule = await api('/api/modules', {
+					method: 'POST',
+					body: JSON.stringify({
+						name: moduleName,
+						color: taskFormNewModuleColor,
+						semesterId: activeSemesterId
+					})
+				});
+				selectedModule = { ...createdModule, id: asId(createdModule._id || createdModule.id) };
+			}
 			const payload = {
 				...taskForm,
-				duration: Number(taskForm.duration || focusDuration || 25),
+				module: moduleName,
+				duration: Number(taskForm.duration || 25),
 				moduleId: selectedModule?.id || '',
-				moduleName: taskForm.module,
+				moduleName: moduleName,
 				semesterId: activeSemesterId || taskForm.semesterId || '',
 				semesterName: activeSemester?.name || taskForm.semesterName || ''
 			};
 			await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) });
 			taskForm = buildNewTaskFormDefaults();
+			creatingTaskModule = false;
+			taskFormNewModuleName = '';
+			taskFormNewModuleColor = MODULE_COLORS[0];
 			taskSubView = 'list';
 			await refreshData();
 		} catch (e) {
 			error = e.message;
 		}
+	}
+
+	function toggleTaskNote(taskId) {
+		const normalizedId = String(taskId);
+		const nextExpanded = new Set(expandedTaskNoteIds);
+		if (nextExpanded.has(normalizedId)) nextExpanded.delete(normalizedId);
+		else nextExpanded.add(normalizedId);
+		expandedTaskNoteIds = nextExpanded;
+	}
+
+	function isTaskNoteExpanded(taskId) {
+		return expandedTaskNoteIds.has(String(taskId));
+	}
+
+	function isTaskNoteLong(note) {
+		return String(note || '').length > 140 || String(note || '').includes('\n');
+	}
+
+	function openFocusForTask(task) {
+		stopFocus();
+		focusHasStarted = false;
+		selectedTaskId = String(task._id);
+		focusTargetSeconds = getFocusTargetSeconds(task);
+		focusSecondsLeft = focusTargetSeconds;
+		focusNoteExpanded = false;
+		activeTab = 'focus';
+	}
+
+	function handleFocusTaskChange() {
+		stopFocus();
+		focusHasStarted = false;
+		focusTargetSeconds = getFocusTargetSeconds();
+		focusSecondsLeft = focusTargetSeconds;
+		focusNoteExpanded = false;
 	}
 
 	function startEditTask(task) {
@@ -499,6 +727,8 @@
 			error = 'Bitte zuerst im Profil mindestens ein Modul im aktiven Semester erstellen.';
 			return;
 		}
+		importAnalysisLoading = true;
+		importAnalysisSource = 'text';
 		try {
 			const payload = await api('/api/deadlines/extract', {
 				method: 'POST',
@@ -511,6 +741,9 @@
 				: 'Keine Deadline erkannt.';
 		} catch (e) {
 			error = e.message;
+		} finally {
+			importAnalysisLoading = false;
+			importAnalysisSource = '';
 		}
 	}
 
@@ -546,6 +779,8 @@
 		}
 		if (!semesterplanImageBase64) { error = 'Bitte zuerst eine Datei auswählen.'; return; }
 		ocrLoading = true;
+		importAnalysisLoading = true;
+		importAnalysisSource = 'file';
 		try {
 			const payload = await api('/api/deadlines/ocr', {
 				method: 'POST',
@@ -560,6 +795,8 @@
 			error = e.message;
 		} finally {
 			ocrLoading = false;
+			importAnalysisLoading = false;
+			importAnalysisSource = '';
 		}
 	}
 
@@ -680,13 +917,18 @@
 		deadlineSuccess = '';
 	}
 
-	function startFocus() {
+	async function startFocus() {
 		if (!selectedTask) { error = 'Bitte zuerst eine Aufgabe auswählen.'; return; }
 		if (isFocusRunning) return;
+		if (focusSecondsLeft > focusTargetSeconds) {
+			focusSecondsLeft = focusTargetSeconds;
+		}
+		if (selectedTask.status !== 'erledigt' && selectedTask.status !== 'in Bearbeitung') {
+			await setTaskStatus(selectedTask, 'in Bearbeitung');
+		}
 		isFocusRunning = true;
 		focusHasStarted = true;
 		focusTimerHandle = setInterval(() => {
-			if (focusSecondsLeft <= 1) { stopFocus(); focusSecondsLeft = 0; return; }
 			focusSecondsLeft -= 1;
 		}, 1000);
 	}
@@ -695,7 +937,13 @@
 		if (isFocusRunning) {
 			stopFocus();
 			// Set to "in Bearbeitung" when paused mid-session
-			if (selectedTask && focusHasStarted && focusSecondsLeft < focusDuration * 60) {
+			if (
+				selectedTask &&
+				selectedTask.status !== 'erledigt' &&
+				selectedTask.status !== 'in Bearbeitung' &&
+				focusHasStarted &&
+				focusSecondsLeft < focusTargetSeconds
+			) {
 				await setTaskStatus(selectedTask, 'in Bearbeitung');
 			}
 		}
@@ -703,8 +951,10 @@
 
 	function resetFocus() {
 		stopFocus();
-		focusSecondsLeft = focusDuration * 60;
+		focusTargetSeconds = getFocusTargetSeconds();
+		focusSecondsLeft = focusTargetSeconds;
 		focusHasStarted = false;
+		focusNoteExpanded = false;
 	}
 
 	function stopFocus() {
@@ -716,15 +966,54 @@
 		return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 	}
 
+	function formatOvertime(s) {
+		return `+${formatSeconds(Math.max(0, s))}`;
+	}
+
+	function parseDateValue(value) {
+		if (!value) return null;
+		if (typeof value === 'string') {
+			const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+			if (match) {
+				const year = Number(match[1]);
+				const month = Number(match[2]);
+				const day = Number(match[3]);
+				return new Date(year, month - 1, day);
+			}
+		}
+		const parsed = new Date(value);
+		return Number.isNaN(parsed.getTime()) ? null : parsed;
+	}
+
+	function startOfLocalDay(date = new Date()) {
+		return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+	}
+
+	function getWeekRange(referenceDate = new Date()) {
+		const dayOfWeek = referenceDate.getDay();
+		const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+		const weekStart = startOfLocalDay(referenceDate);
+		weekStart.setDate(weekStart.getDate() + diffToMonday);
+		const weekEnd = new Date(weekStart);
+		weekEnd.setDate(weekStart.getDate() + 7);
+		return { weekStart, weekEnd };
+	}
+
+	function getMonthRange(referenceDate = new Date()) {
+		const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+		const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
+		return { monthStart, nextMonthStart };
+	}
+
 	function formatDate(value) {
 		if (!value) return '—';
-		const d = new Date(value);
-		return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('de-CH');
+		const d = parseDateValue(value);
+		return !d ? value : d.toLocaleDateString('de-CH');
 	}
 
 	async function completeFocusSession() {
 		if (!selectedTask) { error = 'Keine aktive Aufgabe vorhanden.'; return; }
-		const elapsedMinutes = Math.max(1, Math.round((focusDuration * 60 - focusSecondsLeft) / 60));
+		const elapsedMinutes = Math.max(1, Math.round((focusTargetSeconds - focusSecondsLeft) / 60));
 		try {
 			await api('/api/reflections', {
 				method: 'POST',
@@ -753,7 +1042,6 @@
 				body: JSON.stringify({
 					userName,
 					darkMode,
-					focusDuration,
 					weeklyGoalHours,
 					activeSemesterId,
 					migrationVersion: 1,
@@ -987,7 +1275,6 @@
 			body: JSON.stringify({
 				userName: localStorage.getItem('userName') || '',
 				darkMode: localStorage.getItem('darkMode') === 'true',
-				focusDuration: Number(localStorage.getItem('focusDuration') || '25'),
 				weeklyGoalHours: Number(localStorage.getItem('weeklyGoalHours') || '10'),
 				activeSemesterId: activeMappedId || '',
 				migrationVersion: 1
@@ -1022,7 +1309,8 @@
 		(async () => {
 			await migrateLegacyLocalStorageIfNeeded();
 			await refreshData();
-			focusSecondsLeft = focusDuration * 60;
+			focusTargetSeconds = getFocusTargetSeconds();
+			focusSecondsLeft = focusTargetSeconds;
 			taskForm = buildNewTaskFormDefaults();
 		})();
 	});
@@ -1051,12 +1339,15 @@
 
 			<!-- ==================== HOME ==================== -->
 			{#if activeTab === 'home'}
+				<p class="small text-secondary mb-2">
+					<i class="bi bi-mortarboard me-1"></i>Aktives Semester: <strong>{activeSemester?.name || 'Kein Semester gewählt'}</strong>
+				</p>
 				<div class="row g-2 mb-3">
 					<div class="col-6">
 						<div class="card metric-card rounded-4">
 							<div class="card-body">
 								<p class="text-secondary small mb-1">Offene Aufgaben</p>
-								<p class="fw-semibold mb-0 h5">{openTasks.length}</p>
+								<p class="fw-semibold mb-0 h5">{homeOpenTasks.length}</p>
 							</div>
 						</div>
 					</div>
@@ -1095,12 +1386,25 @@
 				{#if nearestDeadline}
 					<div class="card rounded-4 border-0 shadow-sm mb-3">
 						<div class="card-body">
-							<p class="text-secondary small mb-1">Nächste Deadline</p>
-							<p class="fw-semibold mb-0">{nearestDeadline.title}</p>
-							<p class="small text-secondary mb-0">
-								<span class="module-dot me-1" style="background-color: {getModuleColor(nearestDeadline.module)};"></span>
-								{nearestDeadline.module} · fällig {formatDate(nearestDeadline.dueDate)}
-							</p>
+							<div class="d-flex align-items-center gap-2">
+								<div class="flex-grow-1">
+									<p class="text-secondary small mb-1">Nächste Deadline</p>
+									<p class="fw-semibold mb-0">{nearestDeadline.title}</p>
+									<p class="small text-secondary mb-0">
+										<span class="module-dot me-1" style="background-color: {getModuleColor(nearestDeadline.module)};"></span>
+										{nearestDeadline.module} · fällig {formatDate(nearestDeadline.dueDate)}
+									</p>
+								</div>
+								<button
+									class="btn btn-sm btn-outline-info rounded-pill ms-auto"
+									onclick={() => openFocusForTask(nearestDeadline)}
+									aria-label="Im Fokus öffnen"
+									title="In Fokus öffnen"
+									type="button"
+								>
+									<i class="bi bi-stopwatch" aria-hidden="true"></i>
+								</button>
+							</div>
 						</div>
 					</div>
 				{/if}
@@ -1108,27 +1412,41 @@
 				{#if highestPriorityTask}
 					<div class="card rounded-4 border-0 shadow-sm mb-3">
 						<div class="card-body">
-							<p class="text-secondary small mb-1">Priorität heute</p>
-							<div class="d-flex align-items-center gap-2 mb-1">
-								<span class={`badge ${priorityBadgeClass(highestPriorityTask.priority)}`}>
-									Prio {highestPriorityTask.priority}
-								</span>
-								<p class="fw-semibold mb-0">{highestPriorityTask.title}</p>
+							<div class="d-flex align-items-center gap-2">
+								<div class="flex-grow-1">
+									<p class="text-secondary small mb-1">Priorität heute</p>
+									<div class="d-flex align-items-center gap-2 mb-1">
+										<span class={`badge ${priorityBadgeClass(highestPriorityTask.priority)}`}>
+											Prio {highestPriorityTask.priority}
+										</span>
+										<p class="fw-semibold mb-0">{highestPriorityTask.title}</p>
+									</div>
+									<p class="small text-secondary mb-0">
+										<span class="module-dot me-1" style="background-color: {getModuleColor(highestPriorityTask.module)};"></span>
+										{highestPriorityTask.module}
+										{highestPriorityTask.dueDate ? ` · Deadline ${formatDate(highestPriorityTask.dueDate)}` : ''}
+									</p>
+								</div>
+								<button
+									class="btn btn-sm btn-outline-info rounded-pill ms-auto"
+									onclick={() => openFocusForTask(highestPriorityTask)}
+									aria-label="Im Fokus öffnen"
+									title="In Fokus öffnen"
+									type="button"
+								>
+									<i class="bi bi-stopwatch" aria-hidden="true"></i>
+								</button>
 							</div>
-							<p class="small text-secondary mb-0">
-								<span class="module-dot me-1" style="background-color: {getModuleColor(highestPriorityTask.module)};"></span>
-								{highestPriorityTask.module}
-								{highestPriorityTask.dueDate ? ` · Deadline ${formatDate(highestPriorityTask.dueDate)}` : ''}
-							</p>
 						</div>
 					</div>
 				{/if}
 
-				<div class="card rounded-4 border-0 shadow-sm">
+
+				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
-						<h3 class="h6 mb-3">Aufgaben diese Woche</h3>
+						<h3 class="h6 mb-3">Aufgaben diese Woche (Mo–So)</h3>
 						{#if upcomingTasks.length === 0}
-							<p class="small text-secondary mb-0">Keine Aufgaben mit Deadline in den nächsten 7 Tagen.</p>
+							<p class="small text-secondary mb-0">Keine offenen Aufgaben mit Deadline in dieser Kalenderwoche.</p>
 						{:else}
 							{#each upcomingTasks as task}
 								<div class="d-flex align-items-center gap-2 mb-2">
@@ -1142,11 +1460,54 @@
 											{task.module} · {formatDate(task.dueDate)}
 										</p>
 									</div>
+									<button
+										class="btn btn-sm btn-outline-info rounded-pill ms-auto"
+										onclick={() => openFocusForTask(task)}
+										aria-label="Im Fokus öffnen"
+										title="In Fokus öffnen"
+										type="button"
+									>
+										<i class="bi bi-stopwatch" aria-hidden="true"></i>
+									</button>
 								</div>
 							{/each}
 						{/if}
 					</div>
 				</div>
+
+				<div class="card rounded-4 border-0 shadow-sm">
+					<div class="card-body">
+						<h3 class="h6 mb-3">Überfällige Aufgaben</h3>
+						{#if overdueTasks.length === 0}
+							<p class="small text-secondary mb-0">Keine überfälligen Aufgaben im aktiven Semester.</p>
+						{:else}
+							{#each overdueTasks as task}
+								<div class="d-flex align-items-center gap-2 mb-2">
+									<span class={`badge flex-shrink-0 ${priorityBadgeClass(task.priority)}`}>
+										{task.priority}
+									</span>
+									<div class="flex-grow-1 overflow-hidden">
+										<p class="mb-0 fw-semibold text-truncate small">{task.title}</p>
+										<p class="mb-0 text-secondary" style="font-size: 11px;">
+											<span class="module-dot me-1" style="background-color: {getModuleColor(task.module)};"></span>
+											{task.module} · {formatDate(task.dueDate)}
+										</p>
+									</div>
+									<button
+										class="btn btn-sm btn-outline-info rounded-pill ms-auto"
+										onclick={() => openFocusForTask(task)}
+										aria-label="Im Fokus öffnen"
+										title="In Fokus öffnen"
+										type="button"
+									>
+										<i class="bi bi-stopwatch" aria-hidden="true"></i>
+									</button>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+
 			{/if}
 
 			<!-- ==================== TASKS ==================== -->
@@ -1169,8 +1530,8 @@
 				<!-- Sort & Filter -->
 				<div class="d-flex gap-2 mb-2 align-items-center flex-wrap">
 					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskSortBy}>
-						<option value="priority">Sortierung: Priorität</option>
 						<option value="dueDate">Sortierung: Deadline</option>
+						<option value="priority">Sortierung: Priorität</option>
 						<option value="duration">Sortierung: Dauer</option>
 					</select>
 					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={taskFilterModule}>
@@ -1200,7 +1561,7 @@
 									<div class="d-flex justify-content-between align-items-start">
 										<div class="flex-grow-1 me-2">
 											<div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
-												<span class={`badge ${priorityBadgeClass(task.priority)}`}>Prio {task.priority}</span>
+												<span class={`badge ${priorityBadgeClassNeutral()}`}>Prio {task.priority}</span>
 												<span class={`badge ${statusBadgeClass(task.status)}`}>
 													{statusLabel(task.status)}
 												</span>
@@ -1214,11 +1575,26 @@
 												{task.dueDate ? `Deadline ${formatDate(task.dueDate)} · ` : ''}{task.duration} min
 											</p>
 											{#if task.notes}
-												<p class="small text-secondary mb-0 mt-1 fst-italic">
+												<p
+													class={`small text-secondary mb-0 mt-1 fst-italic task-note ${isTaskNoteExpanded(task._id) ? 'task-note-expanded' : 'task-note-collapsed'}`}
+												>
 													<i class="bi bi-sticky me-1"></i>{task.notes}
 												</p>
 											{/if}
 										</div>
+										{#if task.status !== 'erledigt'}
+											<div class="d-flex flex-column align-items-end gap-2 ms-2">
+												<button
+													class="btn btn-sm btn-outline-info rounded-pill"
+													onclick={() => openFocusForTask(task)}
+													aria-label="Im Fokus öffnen"
+													title="In Fokus öffnen"
+													type="button"
+												>
+													<i class="bi bi-stopwatch" aria-hidden="true"></i>
+												</button>
+											</div>
+										{/if}
 									</div>
 								<div class="d-flex gap-2 mt-2 flex-wrap align-items-center">
 									<button
@@ -1256,6 +1632,17 @@
 											<i class="bi bi-trash" aria-hidden="true"></i>
 										</button>
 									{/if}
+									{#if task.notes && isTaskNoteLong(task.notes)}
+										<button
+											class="btn btn-sm btn-outline-secondary rounded-pill ms-auto"
+											type="button"
+											onclick={() => toggleTaskNote(task._id)}
+											aria-label={isTaskNoteExpanded(task._id) ? 'Notiz einklappen' : 'Notiz ausklappen'}
+											title={isTaskNoteExpanded(task._id) ? 'Weniger anzeigen' : 'Alles anzeigen'}
+										>
+											<i class={`bi ${isTaskNoteExpanded(task._id) ? 'bi-chevron-up' : 'bi-chevron-down'}`} aria-hidden="true"></i>
+										</button>
+									{/if}
 								</div>
 								</div>
 							</div>
@@ -1280,7 +1667,28 @@
 								</div>
 							<div class="col-6">
 								<label class="form-label small" for="new-module">Modul</label>
-								{#if activeModules.length > 0}
+								{#if creatingTaskModule}
+									<input
+										id="new-module"
+										class="form-control rounded-3 mb-2"
+										bind:value={taskFormNewModuleName}
+										placeholder="Neues Modul"
+										autocomplete="off"
+										required
+									/>
+									<label class="form-label small" for="new-module-color">Modulfarbe</label>
+									<input id="new-module-color" class="form-control form-control-color rounded-3" type="color" bind:value={taskFormNewModuleColor} />
+									<button
+										class="btn btn-link btn-sm px-0 mt-1"
+										type="button"
+										onclick={() => {
+											creatingTaskModule = false;
+											taskFormNewModuleName = '';
+										}}
+									>
+										Bestehendes Modul auswählen
+									</button>
+								{:else if activeModules.length > 0}
 									<select id="new-module" class="form-select rounded-3" bind:value={taskForm.module}>
 										<option value="">Bitte wählen</option>
 										{#each activeModules as mod}
@@ -1301,6 +1709,19 @@
 											<option value={mod}></option>
 										{/each}
 									</datalist>
+								{/if}
+								{#if !creatingTaskModule}
+									<button
+										class="btn btn-link btn-sm px-0 mt-1"
+										type="button"
+										onclick={() => {
+											creatingTaskModule = true;
+											taskFormNewModuleName = taskForm.module || '';
+											taskForm.module = '';
+										}}
+									>
+										<i class="bi bi-plus-circle me-1"></i>Neues Modul anlegen
+									</button>
 								{/if}
 							</div>
 								<div class="col-6">
@@ -1323,7 +1744,7 @@
 									<label class="form-label small" for="new-notes">Notiz (optional)</label>
 									<textarea
 										id="new-notes"
-										class="form-control rounded-3"
+										class="form-control rounded-3 task-notes-input"
 										rows="2"
 										placeholder="Hinweise, Links, Kontext..."
 										bind:value={taskForm.notes}
@@ -1396,7 +1817,7 @@
 									<label class="form-label small" for="edit-notes">Notiz (optional)</label>
 									<textarea
 										id="edit-notes"
-										class="form-control rounded-3"
+										class="form-control rounded-3 task-notes-input"
 										rows="2"
 										placeholder="Hinweise, Links, Kontext..."
 										bind:value={editTaskForm.notes}
@@ -1418,6 +1839,29 @@
 						</button>
 						<h2 class="h5 mb-0">Semesterplan importieren</h2>
 					</div>
+					{#if importAnalysisLoading}
+						<div class="card rounded-4 border-0 shadow-sm mb-3">
+							<div class="card-body">
+								<div class="d-flex align-items-center gap-2 text-primary small">
+									<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+									<span>
+										{importAnalysisSource === 'file'
+											? 'Semesterplan (Bild/PDF) wird analysiert...'
+											: 'Semesterplan-Text wird analysiert...'}
+									</span>
+								</div>
+								<div class="progress mt-2" style="height: 6px;">
+									<div
+										class="progress-bar progress-bar-striped progress-bar-animated"
+										style="width: 100%;"
+										role="progressbar"
+										aria-valuemin="0"
+										aria-valuemax="100"
+									></div>
+								</div>
+							</div>
+						</div>
+					{/if}
 
 					<div class="card rounded-4 border-0 shadow-sm mb-3">
 						<div class="card-body">
@@ -1426,18 +1870,6 @@
 								Deadlines und Abgaben werden automatisch erkannt und als Aufgaben vorgeschlagen –
 								du kannst jeden Eintrag vor dem Übernehmen prüfen und anpassen.
 							</p>
-							<p class="small text-secondary mb-3">
-								<i class="bi bi-info-circle me-1"></i>Wähle einmalig das Modul aus dem aktiven Semester, für das dieser Semesterplan gilt.
-							</p>
-							<div class="mb-3">
-								<label class="form-label small" for="import-module">Modul für diesen Semesterplan</label>
-								<select id="import-module" class="form-select rounded-3" bind:value={importSelectedModule}>
-									<option value="">Bitte wählen</option>
-									{#each activeModules as mod}
-										<option value={mod.name}>{mod.name}</option>
-									{/each}
-								</select>
-							</div>
 
 							<div class="mb-3">
 								<label class="form-label small" for="semesterplan-file">Semesterplan hochladen (Bild oder PDF)</label>
@@ -1448,12 +1880,9 @@
 									accept="image/*,application/pdf"
 									onchange={handleSemesterplanFile}
 								/>
-								{#if semesterplanFileName}
-									<p class="small text-secondary mt-1 mb-0">Ausgewählt: {semesterplanFileName}</p>
-								{/if}
 							</div>
-							<button class="btn btn-outline-primary rounded-pill w-100 mb-3" onclick={extractDeadlinesWithOcr} disabled={ocrLoading}>
-								{ocrLoading ? 'Analyse läuft...' : 'Datei analysieren'}
+							<button class="btn btn-outline-primary rounded-pill w-100 mb-3" onclick={extractDeadlinesWithOcr} disabled={importAnalysisLoading}>
+								{ocrLoading ? 'Datei wird analysiert...' : 'Datei analysieren'}
 							</button>
 
 							<div class="mb-2">
@@ -1466,12 +1895,24 @@
 									bind:value={deadlineInput}
 								></textarea>
 							</div>
-							<button class="btn btn-outline-primary rounded-pill w-100" onclick={extractDeadlines}>
-								Text analysieren
+							<button class="btn btn-outline-primary rounded-pill w-100" onclick={extractDeadlines} disabled={importAnalysisLoading}>
+								{importAnalysisLoading && importAnalysisSource === 'text' ? 'Text wird analysiert...' : 'Text analysieren'}
 							</button>
 
 							{#if deadlineSuccess}
-								<div class="alert alert-success py-2 small mt-3 mb-0">{deadlineSuccess}</div>
+								<div class="alert alert-success py-2 small mt-3 mb-2">{deadlineSuccess}</div>
+								<p class="small text-secondary mb-3">
+									<i class="bi bi-info-circle me-1"></i>Wähle einmalig das Modul aus dem aktiven Semester, für das dieser Semesterplan gilt.
+								</p>
+								<div class="mb-3">
+									<label class="form-label small" for="import-module">Modul für diesen Semesterplan</label>
+									<select id="import-module" class="form-select rounded-3" bind:value={importSelectedModule}>
+										<option value="">Bitte wählen</option>
+										{#each activeModules as mod}
+											<option value={mod.name}>{mod.name}</option>
+										{/each}
+									</select>
+								</div>
 							{/if}
 						</div>
 					</div>
@@ -1556,9 +1997,12 @@
 				<div id="profile-semester-section" class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body text-center">
 						<h2 class="h5 mb-3">Fokus Timer</h2>
+						<p class="small text-secondary mb-2">
+							<i class="bi bi-mortarboard me-1"></i>Aktives Semester: <strong>{activeSemester?.name || 'Kein Semester gewählt'}</strong>
+						</p>
 						<div class="mb-3">
 							<label class="form-label small" for="selected-task">Aufgabe auswählen</label>
-							<select id="selected-task" class="form-select rounded-3" bind:value={selectedTaskId}>
+							<select id="selected-task" class="form-select rounded-3" bind:value={selectedTaskId} onchange={handleFocusTaskChange}>
 								<option value="">Bitte wählen</option>
 								{#each openTasks as task}
 									<option value={task._id}>
@@ -1579,20 +2023,36 @@
 							</div>
 							{#if selectedTask.notes}
 								<div class="alert alert-secondary py-2 text-start small mb-2">
-									<i class="bi bi-sticky me-1"></i><strong>Notiz:</strong> {selectedTask.notes}
+									<p class={`mb-0 task-note ${focusNoteExpanded ? 'task-note-expanded' : 'task-note-collapsed'}`}>
+										<i class="bi bi-sticky me-1"></i><strong>Notiz:</strong> {selectedTask.notes}
+									</p>
+									{#if isTaskNoteLong(selectedTask.notes)}
+										<button
+											class="btn btn-sm btn-outline-secondary rounded-pill mt-2"
+											type="button"
+											onclick={() => (focusNoteExpanded = !focusNoteExpanded)}
+											aria-label={focusNoteExpanded ? 'Notiz einklappen' : 'Notiz ausklappen'}
+											title={focusNoteExpanded ? 'Weniger anzeigen' : 'Alles anzeigen'}
+										>
+											<i class={`bi ${focusNoteExpanded ? 'bi-chevron-up' : 'bi-chevron-down'}`} aria-hidden="true"></i>
+										</button>
+									{/if}
 								</div>
 							{/if}
 						{/if}
 						<div class="focus-timer mb-3">
 							<div>
 								<p class="text-secondary small mb-1">Verbleibend</p>
-								<p class="display-6 fw-semibold mb-0">{formatSeconds(focusSecondsLeft)}</p>
+								<p class="display-6 fw-semibold mb-0">{formatSeconds(Math.max(0, focusSecondsLeft))}</p>
+								{#if focusSecondsLeft < 0}
+									<p class="small text-danger fw-semibold mb-0">Über Ziel: {formatOvertime(Math.abs(focusSecondsLeft))}</p>
+								{/if}
 							</div>
 						</div>
 						<p class="small text-secondary mb-2">{selectedTask ? selectedTask.title : 'Keine Aufgabe ausgewählt'}</p>
 						<div class="d-flex justify-content-center gap-2">
 							<button
-								class="btn btn-primary rounded-pill px-3"
+								class={`btn rounded-pill px-3 ${isFocusRunning ? 'btn-primary' : 'btn-outline-primary'}`}
 								onclick={startFocus}
 								type="button"
 								aria-label="Start"
@@ -1601,7 +2061,7 @@
 								<i class="bi bi-play-fill" aria-hidden="true"></i>
 							</button>
 							<button
-								class="btn btn-outline-secondary rounded-pill px-3"
+								class={`btn rounded-pill px-3 ${!isFocusRunning && focusHasStarted ? 'btn-primary' : 'btn-outline-primary'}`}
 								onclick={pauseFocus}
 								type="button"
 								aria-label="Pause"
@@ -1610,7 +2070,7 @@
 								<i class="bi bi-pause-fill" aria-hidden="true"></i>
 							</button>
 							<button
-								class={`btn rounded-pill px-3 ${darkMode ? 'btn-outline-light' : 'btn-outline-dark'}`}
+								class="btn btn-outline-primary rounded-pill px-3"
 								onclick={resetFocus}
 								type="button"
 								aria-label="Reset"
@@ -1654,42 +2114,81 @@
 			{#if activeTab === 'progress'}
 				<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
 					<h2 class="h5 mb-0">Mein Fortschritt</h2>
-					<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={progressFilterSemester}>
-						<option value="">Alle Semester</option>
-						{#each mySemesters as sem}
-							<option value={sem.id}>{sem.name}</option>
-						{/each}
-					</select>
+					<div class="d-flex gap-2 flex-wrap">
+						<select class="form-select form-select-sm rounded-pill" style="width: auto;" bind:value={progressFilterSemester}>
+							<option value="">Alle Semester</option>
+							{#each mySemesters as sem}
+								<option value={sem.id}>{sem.name}</option>
+							{/each}
+						</select>
+						<div class="d-flex gap-1" role="group" aria-label="Fortschritts-Zeitraum">
+							<button
+								type="button"
+								class={`btn btn-sm rounded-pill ${progressPeriod === 'week' ? 'btn-primary' : 'btn-outline-primary'}`}
+								onclick={() => (progressPeriod = 'week')}
+							>Diese Woche</button>
+							<button
+								type="button"
+								class={`btn btn-sm rounded-pill ${progressPeriod === 'month' ? 'btn-primary' : 'btn-outline-primary'}`}
+								onclick={() => (progressPeriod = 'month')}
+							>Diesen Monat</button>
+							<button
+								type="button"
+								class={`btn btn-sm rounded-pill ${progressPeriod === 'semester' ? 'btn-primary' : 'btn-outline-primary'}`}
+								onclick={() => (progressPeriod = 'semester')}
+							>Ganzes Semester</button>
+						</div>
+					</div>
 				</div>
+				<p class="small text-secondary mb-3">
+					Zeitraum: <strong>{formatProgressPeriodLabel()}</strong>
+				</p>
 
 				<div class="row g-2 mb-3">
 					<div class="col-6">
 						<div class="card metric-card rounded-4 text-center">
 							<div class="card-body py-3">
-								<p class="small text-secondary mb-1">Aufgaben</p>
-								<p class="h5 mb-0">{progressCompletedTasks.length} / {progressTasks.length}</p>
+								<p class="small text-secondary mb-1">Erledigte Aufgaben</p>
+								<p class="h5 mb-0">{progressCompletedTasks.length} / {progressPeriodTasks.length}</p>
 							</div>
 						</div>
 					</div>
 					<div class="col-6">
 						<div class="card metric-card rounded-4 text-center">
 							<div class="card-body py-3">
-								<p class="small text-secondary mb-1">Fokuszeit gesamt</p>
-								<p class="h5 mb-0">{progressTotalFocusMinutes} min</p>
+								<p class="small text-secondary mb-1">Fokuszeit im Zeitraum</p>
+								<p class="h5 mb-0">{progressPeriodFocusMinutes} min</p>
+							</div>
+						</div>
+					</div>
+					<div class="col-12">
+						<div class="card metric-card rounded-4 text-center">
+							<div class="card-body py-3">
+								<p class="small text-secondary mb-1">Zeit vs. Schätzung</p>
+								<p class={`h5 mb-0 ${progressOverUnderMinutes > 0 ? 'text-danger' : progressOverUnderMinutes < 0 ? 'text-success' : ''}`}>
+									{progressOverUnderMinutes > 0 ? '+' : ''}{progressOverUnderMinutes} min
+								</p>
+								<p class="small text-secondary mb-0">
+									{progressOverUnderMinutes > 0
+										? 'über Zielzeit'
+										: progressOverUnderMinutes < 0
+											? 'unter Zielzeit'
+											: 'im Zielbereich'}
+								</p>
 							</div>
 						</div>
 					</div>
 				</div>
 
 				<!-- Weekly focus goal -->
-				{#if weeklyGoalHours > 0}
+				{#if progressPeriod === 'week' && weeklyGoalHours > 0}
 					{@const goalMinutes = weeklyGoalHours * 60}
-					{@const goalPct = Math.min(100, Math.round((progressThisWeekFocusMinutes / goalMinutes) * 100))}
+					{@const goalPct = Math.min(100, Math.round((progressPeriodFocusMinutes / goalMinutes) * 100))}
 					<div class="card rounded-4 border-0 shadow-sm mb-3">
 						<div class="card-body">
 							<div class="d-flex justify-content-between align-items-center mb-2">
 								<h3 class="h6 mb-0">Wochenziel Fokuszeit</h3>
-								<span class="small text-secondary">{progressThisWeekFocusMinutes} / {goalMinutes} min</span>
+								<span class="small text-secondary">{progressPeriodFocusMinutes} / {goalMinutes} min</span>
 							</div>
 							<div class="progress" style="height: 10px;">
 								<div
@@ -1709,13 +2208,20 @@
 				<!-- Weekly chart -->
 				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
-						<h3 class="h6 mb-3">Erledigte Aufgaben diese Woche</h3>
+						<h3 class="h6 mb-1">
+							{progressPeriod === 'week'
+								? 'Erledigte Aufgaben diese Woche'
+								: progressPeriod === 'month'
+									? 'Erledigte Aufgaben diesen Monat'
+									: 'Erledigte Aufgaben im ausgewählten Semester'}
+						</h3>
+						<p class="small text-secondary mb-3">{formatProgressPeriodLabel()}</p>
 						<div class="d-flex align-items-end gap-1" style="height: 72px;">
-							{#each progressWeeklyData as day}
+							{#each progressChartData as day}
 								<div class="flex-grow-1 d-flex flex-column align-items-center gap-1">
 									<div
 										class={`rounded-top w-100 ${day.isToday ? 'bg-primary' : 'bg-secondary bg-opacity-25'}`}
-										style="height: {Math.max(4, Math.round((day.count / progressMaxWeeklyCount) * 52))}px; transition: height 0.3s;"
+										style="height: {Math.max(4, Math.round((day.count / progressMaxChartCount) * 52))}px; transition: height 0.3s;"
 									></div>
 									<span class={`small ${day.isToday ? 'fw-bold text-primary' : 'text-secondary'}`} style="font-size: 10px;">
 										{day.label}
@@ -1772,33 +2278,65 @@
 							<p class="small text-secondary mb-0">Noch keine Aufgaben abgeschlossen.</p>
 						{:else}
 							{#each filteredProgressCompletedTasks as task}
-								{@const ref = reflections.find((r) => r.taskId === task._id)}
-								{@const diff = ref ? Number(ref.focusMinutes) - Number(task.duration) : null}
+								{@const taskRefs = getTaskReflectionsForPeriod(task._id)}
+								{@const latestRef = taskRefs[0]}
+								{@const spentMinutes = taskRefs.reduce((sum, r) => sum + Number(r.focusMinutes || 0), 0)}
+								{@const diff = spentMinutes - Number(task.duration || 0)}
+								{@const isExpanded = expandedProgressTaskIds.has(String(task._id))}
 								<div class="border-bottom pb-2 mb-2">
 									<div class="d-flex align-items-start justify-content-between">
 										<div>
 											<div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
-												<span class={`badge ${priorityBadgeClass(task.priority)}`}>Prio {task.priority}</span>
+												<span class={`badge ${priorityBadgeClassNeutral()}`}>Prio {task.priority}</span>
 												<span
 													class="badge"
 													style="background-color: {getModuleColor(task.module)}; color: white;"
 												>{task.module}</span>
-												{#if diff !== null}
-													<span class={`badge ${diff > 10 ? 'text-bg-danger' : diff < -10 ? 'text-bg-success' : 'text-bg-secondary'}`}>
-														{diff > 0 ? '+' : ''}{diff} min
-													</span>
-												{/if}
+												<span class={`badge ${diff > 0 ? 'text-bg-danger' : diff < 0 ? 'text-bg-success' : 'text-bg-secondary'}`}>
+													{diff > 0 ? '+' : ''}{diff} min {diff > 0 ? 'über Ziel' : diff < 0 ? 'unter Ziel' : ''}
+												</span>
 											</div>
 											<p class="fw-semibold mb-0 small">{task.title}</p>
 										</div>
 										<div class="text-end flex-shrink-0 ms-2">
 											<p class="small mb-0 text-secondary">Schätzung: {task.duration} min</p>
-											{#if ref}
-												<p class="small mb-0">Tatsächlich: {ref.focusMinutes} min</p>
-												<p class="small text-secondary mb-0">{ref.rating}</p>
+											<p class="small mb-0">Tatsächlich: {spentMinutes} min</p>
+											{#if latestRef}
+												<p class="small text-secondary mb-0">{latestRef.rating}</p>
 											{/if}
 										</div>
 									</div>
+									<button
+										class="btn btn-sm btn-outline-secondary rounded-pill mt-2"
+										type="button"
+										onclick={() => toggleProgressTaskDetails(task._id)}
+									>
+										<i class={`bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'}`} aria-hidden="true"></i>
+										{isExpanded ? ' Details ausblenden' : ' Details anzeigen'}
+									</button>
+									{#if isExpanded}
+										<div class="mt-2 p-2 rounded-3 border bg-body-tertiary">
+											{#if task.notes}
+												<p class="small mb-2"><strong>Aufgabennotiz:</strong> {task.notes}</p>
+											{:else}
+												<p class="small text-secondary mb-2">Keine Aufgabennotiz vorhanden.</p>
+											{/if}
+											{#if taskRefs.some((r) => r.note)}
+												<p class="small mb-1"><strong>Fokus-Notizen:</strong></p>
+												{#each taskRefs as ref}
+													{#if ref.note}
+														<p class="small mb-1">
+															{formatDate(ref.createdAt)} · {ref.focusMinutes} min
+															<br />
+															<span class="text-secondary">{ref.note}</span>
+														</p>
+													{/if}
+												{/each}
+											{:else}
+												<p class="small text-secondary mb-0">Keine Fokus-Notiz im gewählten Zeitraum vorhanden.</p>
+											{/if}
+										</div>
+									{/if}
 								</div>
 							{/each}
 						{/if}
@@ -1825,30 +2363,14 @@
 						</div>
 
 						<div class="mb-3">
-							<label class="form-label small fw-semibold" for="setting-focus-duration">Standard-Fokuszeit (Minuten)</label>
-							<div class="d-flex gap-2 mb-2 flex-wrap">
-								{#each [25, 45, 60, 90] as preset}
-									<button
-										class="btn btn-sm rounded-pill {focusDuration === preset ? 'btn-primary' : 'btn-outline-secondary'}"
-										onclick={() => { focusDuration = preset; }}
-										type="button"
-									>{preset} min</button>
-								{/each}
-							</div>
-							<input
-								id="setting-focus-duration"
-								class="form-control rounded-3"
-								type="number"
-								min="5"
-								max="180"
-								step="5"
-								bind:value={focusDuration}
-							/>
-							<p class="form-text text-secondary small">Wird beim Start jeder Fokus-Session verwendet. Reset setzt den Timer auf diesen Wert zurück.</p>
-						</div>
-
-						<div class="mb-3">
-							<label class="form-label small fw-semibold" for="setting-weekly-goal">Wochenziel Fokuszeit (Stunden)</label>
+							<label class="form-label small fw-semibold d-flex align-items-center gap-1" for="setting-weekly-goal">
+								Wochenziel Fokuszeit (Stunden)
+								<i
+									class="bi bi-info-circle text-secondary"
+									title="Lege hier dein Lernzeit-Ziel pro Woche fest. Es wird im Fortschritt für den Wochenmodus verwendet."
+									aria-label="Info Wochenziel Fokuszeit"
+								></i>
+							</label>
 							<input
 								id="setting-weekly-goal"
 								class="form-control rounded-3"
@@ -1858,7 +2380,6 @@
 								step="0.5"
 								bind:value={weeklyGoalHours}
 							/>
-							<p class="form-text text-secondary small">Wird im Fortschritts-Tab als Zielbalken angezeigt. 0 = kein Ziel.</p>
 						</div>
 
 						<div class="mb-4">
@@ -1896,12 +2417,25 @@
 				<!-- Semester management -->
 				<div class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
-						<h3 class="h6 mb-1">Semester</h3>
-						<p class="small text-secondary mb-3">Erstelle Semester und wähle das aktive aus. Module werden pro Semester verwaltet.</p>
+						<h3 class="h6 mb-3 d-flex align-items-center gap-2">
+							Semester
+							<i
+								class="bi bi-info-circle text-secondary"
+								title="Hier wechselst du das aktuelle Semester manuell. Neue Module und Aufgaben werden dem aktiven Semester zugeordnet."
+								aria-label="Info Semesterverwaltung"
+							></i>
+						</h3>
 
 						{#if mySemesters.length > 0}
 							<div class="mb-3">
-								<label class="form-label small fw-semibold" for="active-semester">Aktuelles Semester</label>
+								<label class="form-label small fw-semibold d-flex align-items-center gap-1" for="active-semester">
+									Aktuelles Semester
+									<i
+										class="bi bi-info-circle text-secondary"
+										title="Der Wechsel passiert nicht automatisch. Wähle hier dein aktives Semester für Aufgaben, Module und Home-Metriken."
+										aria-label="Info aktives Semester"
+									></i>
+								</label>
 								<select
 									id="active-semester"
 									class="form-select rounded-3"
@@ -1971,7 +2505,14 @@
 				<!-- Module management -->
 				<div id="profile-module-section" class="card rounded-4 border-0 shadow-sm mb-3">
 					<div class="card-body">
-						<h3 class="h6 mb-1">Module</h3>
+						<h3 class="h6 mb-1 d-flex align-items-center gap-2">
+							Module
+							<i
+								class="bi bi-info-circle text-secondary"
+								title="Module gehören immer zum aktiven Semester. Aufgaben übernehmen diese Zuordnung beim Erstellen."
+								aria-label="Info Module"
+							></i>
+						</h3>
 						{#if !activeSemesterId}
 							<p class="small text-secondary mb-0">Bitte zuerst ein aktives Semester auswählen oder erstellen.</p>
 						{:else}
