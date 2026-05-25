@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { jsonError, readJsonBody } from '$lib/server/http';
 
 function normalizeColor(value) {
 	const color = String(value || '').trim();
@@ -18,12 +19,15 @@ export async function GET() {
 }
 
 export async function POST({ request }) {
-	const payload = await request.json();
+	const body = await readJsonBody(request);
+	if (!body.ok) return body.response;
+
+	const payload = body.data;
 	const name = String(payload.name || '').trim();
 	const color = normalizeColor(payload.color);
 
 	if (!name) {
-		return json({ error: 'Semestername ist erforderlich' }, { status: 400 });
+		return jsonError('Semestername ist erforderlich', 400);
 	}
 
 	const db = await getDb();
@@ -45,7 +49,7 @@ export async function POST({ request }) {
 		return json({ ...semester, _id: result.insertedId });
 	} catch (error) {
 		if (error?.code === 11000) {
-			return json({ error: 'Semester mit diesem Namen existiert bereits' }, { status: 409 });
+			return jsonError('Semester mit diesem Namen existiert bereits', 409);
 		}
 		throw error;
 	}

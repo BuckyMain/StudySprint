@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { jsonError, readJsonBody } from '$lib/server/http';
 
 const ALLOWED_RATINGS = new Set(['Sehr fokussiert', 'Okay', 'Abgelenkt']);
 
@@ -12,10 +13,13 @@ export async function GET() {
 
 export async function POST({ request }) {
 
-	const payload = await request.json();
+	const body = await readJsonBody(request);
+	if (!body.ok) return body.response;
+
+	const payload = body.data;
 	const rating = String(payload.rating || 'Okay');
 	if (!ALLOWED_RATINGS.has(rating)) {
-		return json({ error: 'Ungültige Bewertung' }, { status: 400 });
+		return jsonError('Ungültige Bewertung', 400);
 	}
 	const reflection = {
 		sessionId: payload.sessionId || null,

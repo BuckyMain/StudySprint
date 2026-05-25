@@ -1,8 +1,7 @@
-import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-
-const ALLOWED_STATUS = new Set(['offen', 'in Bearbeitung', 'erledigt']);
-const ALLOWED_PRIORITIES = new Set(['1', '2', '3', '4', '5']);
+import { ALLOWED_TASK_PRIORITIES, ALLOWED_TASK_STATUS } from '$lib/server/task-constants';
+import { jsonError, readJsonBody } from '$lib/server/http';
+import { json } from '@sveltejs/kit';
 
 export async function GET() {
 	const db = await getDb();
@@ -12,18 +11,21 @@ export async function GET() {
 }
 
 export async function POST({ request }) {
-	const payload = await request.json();
+	const body = await readJsonBody(request);
+	if (!body.ok) return body.response;
+
+	const payload = body.data;
 	const moduleName = String(payload.moduleName || payload.module || '').trim();
 	const moduleId = String(payload.moduleId || '').trim();
 	const semesterId = String(payload.semesterId || '').trim();
 	const status = String(payload.status || 'offen');
 	const priority = String(payload.priority || '3');
 
-	if (!ALLOWED_STATUS.has(status)) {
-		return json({ error: 'Ungültiger Status' }, { status: 400 });
+	if (!ALLOWED_TASK_STATUS.has(status)) {
+		return jsonError('Ungültiger Status', 400);
 	}
-	if (!ALLOWED_PRIORITIES.has(priority)) {
-		return json({ error: 'Ungültige Priorität' }, { status: 400 });
+	if (!ALLOWED_TASK_PRIORITIES.has(priority)) {
+		return jsonError('Ungültige Priorität', 400);
 	}
 
 	const task = {
@@ -43,7 +45,7 @@ export async function POST({ request }) {
 	};
 
 	if (!task.title || !task.module) {
-		return json({ error: 'title und module sind erforderlich' }, { status: 400 });
+		return jsonError('title und module sind erforderlich', 400);
 	}
 
 	const db = await getDb();

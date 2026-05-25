@@ -1,24 +1,24 @@
 import { json } from '@sveltejs/kit';
-import { ObjectId } from 'mongodb';
 import { getDb } from '$lib/server/db';
-
-function parseId(id) {
-	if (!ObjectId.isValid(id)) return null;
-	return new ObjectId(id);
-}
+import { parseObjectId } from '$lib/server/ids';
+import { deleteReflectionsForTaskIds } from '$lib/server/cascade';
+import { jsonError, readJsonBody } from '$lib/server/http';
 
 export async function PATCH({ params, request }) {
-	const semesterId = parseId(params.id);
-	if (!semesterId) return json({ error: 'Invalid id' }, { status: 400 });
+	const semesterId = parseObjectId(params.id);
+	if (!semesterId) return jsonError('Invalid id', 400);
 
-	const payload = await request.json();
+	const body = await readJsonBody(request);
+	if (!body.ok) return body.response;
+
+	const payload = body.data;
 	const update = { updatedAt: new Date() };
 	if (payload.name !== undefined) update.name = String(payload.name || '').trim();
 	if (payload.color !== undefined) update.color = String(payload.color || '').trim();
 	if (payload.isActive !== undefined) update.isActive = Boolean(payload.isActive);
 
 	if (update.name !== undefined && !update.name) {
-		return json({ error: 'Semestername ist erforderlich' }, { status: 400 });
+		return jsonError('Semestername ist erforderlich', 400);
 	}
 
 	const db = await getDb();
@@ -26,16 +26,28 @@ export async function PATCH({ params, request }) {
 		await db.collection('semesters').updateMany({}, { $set: { isActive: false, updatedAt: new Date() } });
 	}
 
-	await db.collection('semesters').updateOne({ _id: semesterId }, { $set: update });
+	try {
+		const result = await db.collection('semesters').updateOne({ _id: semesterId }, { $set: update });
+		if (result.matchedCount === 0) {
+			return jsonError('Semester not found', 404);
+		}
+	} catch (error) {
+		if (error?.code === 11000) {
+			return jsonError('Semester mit diesem Namen existiert bereits', 409);
+		}
+		throw error;
+	}
 	const semester = await db.collection('semesters').findOne({ _id: semesterId });
 	return json(semester);
 }
 
 export async function DELETE({ params }) {
-	const semesterId = parseId(params.id);
-	if (!semesterId) return json({ error: 'Invalid id' }, { status: 400 });
+	const semesterId = parseObjectId(params.id);
+	if (!semesterId) return jsonError('Invalid id', 400);
 
 	const db = await getDb();
+	const semester = await db.collection('semesters').findOne({ _id: semesterId });
+	if (!semester) return jsonError('Semester not found', 404);
 	const semesterIdString = String(semesterId);
 	const modules = await db.collection('modules').find({ semesterId: semesterIdString }).toArray();
 	const moduleIdStrings = modules.map((moduleItem) => String(moduleItem._id));
@@ -44,12 +56,7 @@ export async function DELETE({ params }) {
 		: { semesterId: semesterIdString };
 
 	const taskIds = await db.collection('tasks').find(taskFilter, { projection: { _id: 1 } }).toArray();
-	const taskIdStrings = taskIds.map((task) => String(task._id));
-	if (taskIdStrings.length) {
-		await db.collection('reflections').deleteMany({
-			$or: [{ taskId: { $in: taskIdStrings } }, { taskId: { $in: taskIds.map((task) => task._id) } }]
-		});
-	}
+	await deleteReflectionsForTaskIds(db, taskIds.map((task) => task._id));
 
 	await Promise.all([
 		db.collection('tasks').deleteMany(taskFilter),

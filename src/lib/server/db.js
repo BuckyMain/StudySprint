@@ -46,11 +46,3 @@ export async function getDb() {
 	return dbInstance;
 }
 
-export async function closeDbConnection() {
-	if (!dbInstance) {
-		return;
-	}
-
-	await client.close();
-	dbInstance = null;
-}
