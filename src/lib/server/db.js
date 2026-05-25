@@ -10,7 +10,9 @@ async function ensureIndexes(db) {
 	await Promise.all([
 		db.collection('tasks').createIndex({ semesterId: 1, status: 1 }),
 		db.collection('tasks').createIndex({ dueDate: 1 }),
+		db.collection('tasks').createIndex({ moduleId: 1 }),
 		db.collection('modules').createIndex({ semesterId: 1, name: 1 }, { unique: true }),
+		db.collection('reflections').createIndex({ taskId: 1 }),
 		db.collection('semesters').createIndex({ name: 1 }, { unique: true, sparse: true })
 	]);
 	indexesEnsured = true;

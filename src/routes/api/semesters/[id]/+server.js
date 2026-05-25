@@ -36,9 +36,25 @@ export async function DELETE({ params }) {
 	if (!semesterId) return json({ error: 'Invalid id' }, { status: 400 });
 
 	const db = await getDb();
+	const semesterIdString = String(semesterId);
+	const modules = await db.collection('modules').find({ semesterId: semesterIdString }).toArray();
+	const moduleIdStrings = modules.map((moduleItem) => String(moduleItem._id));
+	const taskFilter = moduleIdStrings.length
+		? { $or: [{ semesterId: semesterIdString }, { moduleId: { $in: moduleIdStrings } }] }
+		: { semesterId: semesterIdString };
+
+	const taskIds = await db.collection('tasks').find(taskFilter, { projection: { _id: 1 } }).toArray();
+	const taskIdStrings = taskIds.map((task) => String(task._id));
+	if (taskIdStrings.length) {
+		await db.collection('reflections').deleteMany({
+			$or: [{ taskId: { $in: taskIdStrings } }, { taskId: { $in: taskIds.map((task) => task._id) } }]
+		});
+	}
+
 	await Promise.all([
-		db.collection('semesters').deleteOne({ _id: semesterId }),
-		db.collection('modules').deleteMany({ semesterId: String(semesterId) })
+		db.collection('tasks').deleteMany(taskFilter),
+		db.collection('modules').deleteMany({ semesterId: semesterIdString }),
+		db.collection('semesters').deleteOne({ _id: semesterId })
 	]);
 
 	const nextActive = await db.collection('semesters').findOne({ isActive: true });

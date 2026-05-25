@@ -35,6 +35,29 @@ export async function DELETE({ params }) {
 	if (!moduleId) return json({ error: 'Invalid id' }, { status: 400 });
 
 	const db = await getDb();
-	await db.collection('modules').deleteOne({ _id: moduleId });
+	const moduleItem = await db.collection('modules').findOne({ _id: moduleId });
+	const moduleIdString = String(moduleId);
+	const taskFilter = moduleItem?.semesterId && moduleItem?.name
+		? {
+			$or: [
+				{ moduleId: moduleIdString },
+				{ module: moduleItem.name, semesterId: moduleItem.semesterId },
+				{ moduleName: moduleItem.name, semesterId: moduleItem.semesterId }
+			]
+		}
+		: { moduleId: moduleIdString };
+
+	const taskIds = await db.collection('tasks').find(taskFilter, { projection: { _id: 1 } }).toArray();
+	const taskIdStrings = taskIds.map((task) => String(task._id));
+	if (taskIdStrings.length) {
+		await db.collection('reflections').deleteMany({
+			$or: [{ taskId: { $in: taskIdStrings } }, { taskId: { $in: taskIds.map((task) => task._id) } }]
+		});
+	}
+
+	await Promise.all([
+		db.collection('tasks').deleteMany(taskFilter),
+		db.collection('modules').deleteOne({ _id: moduleId })
+	]);
 	return json({ ok: true });
 }

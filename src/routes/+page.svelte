@@ -278,13 +278,19 @@
 	const progressPeriodTaskIds = $derived.by(
 		() => new Set(progressPeriodReflections.map((r) => String(r.taskId || '')).filter(Boolean))
 	);
-	const progressPeriodTasks = $derived.by(() =>
-		progressTasks.filter((t) => progressPeriodTaskIds.has(String(t._id)))
-	);
-	const progressCompletedTasks = $derived.by(() =>
+	const progressCompletedTasksWithReflections = $derived.by(() =>
 		progressTasks.filter(
 			(t) => t.status === 'erledigt' && progressPeriodTaskIds.has(String(t._id))
 		)
+	);
+	const progressPeriodTasks = $derived(progressTasks);
+	const progressCompletedTasks = $derived(
+		progressPeriodTasks.filter((t) => t.status === 'erledigt')
+	);
+	const progressCompletionPct = $derived(
+		progressPeriodTasks.length
+			? Math.round((progressCompletedTasks.length / progressPeriodTasks.length) * 100)
+			: 0
 	);
 	const progressModules = $derived([
 		...new Set(progressPeriodTasks.map((t) => t.module).filter(Boolean))
@@ -359,8 +365,12 @@
 		if (!progressFilterModule) return progressCompletedTasks;
 		return progressCompletedTasks.filter((t) => t.module === progressFilterModule);
 	});
+	const filteredProgressCompletedTasksWithReflections = $derived.by(() => {
+		if (!progressFilterModule) return progressCompletedTasksWithReflections;
+		return progressCompletedTasksWithReflections.filter((t) => t.module === progressFilterModule);
+	});
 	const progressOverUnderMinutes = $derived.by(() => {
-		return filteredProgressCompletedTasks.reduce((sum, task) => {
+		return filteredProgressCompletedTasksWithReflections.reduce((sum, task) => {
 			const taskRefs = getTaskReflectionsForPeriod(task._id);
 			const spent = taskRefs.reduce((acc, r) => acc + Number(r.focusMinutes || 0), 0);
 			return sum + (spent - Number(task.duration || 0));
@@ -572,6 +582,11 @@
 					? preferredActiveSemesterId
 					: activeFromSemesters;
 			activeSemesterId = nextActiveSemesterId;
+			const hasValidProgressSemester =
+				progressFilterSemester && mySemesters.some((s) => s.id === progressFilterSemester);
+			if (!hasValidProgressSemester) {
+				progressFilterSemester = nextActiveSemesterId || '';
+			}
 
 			if (!selectedTaskId && tasks.length > 0) selectedTaskId = tasks[0]._id;
 			if (selectedTaskId && !tasks.some((t) => t._id === selectedTaskId)) {
@@ -1059,6 +1074,7 @@
 
 	async function setActiveSemester(id, { refresh = true } = {}) {
 		activeSemesterId = id;
+		progressFilterSemester = id || '';
 		if (id) {
 			await api(`/api/semesters/${id}`, {
 				method: 'PATCH',
@@ -2150,6 +2166,7 @@
 							<div class="card-body py-3">
 								<p class="small text-secondary mb-1">Erledigte Aufgaben</p>
 								<p class="h5 mb-0">{progressCompletedTasks.length} / {progressPeriodTasks.length}</p>
+								<p class="small text-secondary mb-0">{progressCompletionPct}% abgeschlossen</p>
 							</div>
 						</div>
 					</div>
@@ -2452,7 +2469,7 @@
 								{#each mySemesters as sem}
 									{#if deletingSemesterId === sem.id}
 										<div class="d-flex align-items-center gap-2 border rounded-pill px-2 py-1">
-											<span class="small text-danger fw-semibold">Semester "{sem.name}" wirklich löschen?</span>
+											<span class="small text-danger fw-semibold">Semester "{sem.name}" inkl. aller Module, Aufgaben und Reflexionen wirklich löschen?</span>
 											<button class="btn btn-sm btn-danger rounded-pill" type="button" onclick={() => confirmRemoveSemester(sem.id)}>Ja</button>
 											<button class="btn btn-sm btn-outline-secondary rounded-pill" type="button" onclick={cancelRemoveSemester}>Nein</button>
 										</div>
@@ -2524,7 +2541,7 @@
 									{#each activeModules as mod}
 										{#if deletingModuleId === mod.id}
 											<div class="d-flex align-items-center gap-2 border rounded-pill px-2 py-1">
-												<span class="small text-danger fw-semibold">Modul "{mod.name}" wirklich löschen?</span>
+												<span class="small text-danger fw-semibold">Modul "{mod.name}" inkl. aller Aufgaben und Reflexionen wirklich löschen?</span>
 												<button class="btn btn-sm btn-danger rounded-pill" type="button" onclick={() => confirmRemoveModule(mod.id)}>Ja</button>
 												<button class="btn btn-sm btn-outline-secondary rounded-pill" type="button" onclick={cancelRemoveModule}>Nein</button>
 											</div>
@@ -2603,7 +2620,7 @@
 		<div class="d-flex justify-content-around">
 			{#each tabs as tab}
 				<button
-					class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1"
+					class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1 mb-2 mt-2"
 					class:btn-primary={activeTab === tab}
 					class:btn-light={activeTab !== tab}
 					onclick={() => { activeTab = tab; if (tab === 'tasks') taskSubView = 'list'; }}
@@ -2620,6 +2637,7 @@
 	.bottom-nav {
 		background-color: var(--bs-body-bg);
 		border-top-color: var(--bs-border-color) !important;
+		border-radius: 15px;
 	}
 	:global([data-bs-theme='dark']) .bottom-nav :global(.nav-btn.btn-light) {
 		background-color: #2b3035;
