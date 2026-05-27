@@ -72,6 +72,7 @@
 	const priorities = ['1', '2', '3', '4', '5'];
 	const priorityLabels = { '1': 'Höchste', '2': 'Hoch', '3': 'Mittel', '4': 'Niedrig', '5': 'Niedrigste' };
 	const focusRatings = ['Sehr fokussiert', 'Okay', 'Abgelenkt'];
+	const FOCUS_TIMER_STORAGE_KEY = 'studysprint.focus-timer-v1';
 
 	// Module color palette
 	const MODULE_COLORS = [
@@ -156,6 +157,7 @@
 	let focusTargetSeconds = $state(25 * 60);
 	let isFocusRunning = $state(false);
 	let focusTimerHandle = null;
+	let focusEndAtMs = $state(null);
 	let focusHasStarted = $state(false);
 	let focusNoteExpanded = $state(false);
 	let reflectionRating = $state('Okay');
@@ -431,6 +433,122 @@
 		return Number(task?.duration || 25) * 60;
 	}
 
+	function normalizeFocusSeconds(seconds, fallback = 25 * 60) {
+		const parsed = Number(seconds);
+		if (!Number.isFinite(parsed)) return Math.max(0, Math.round(fallback));
+		return Math.max(0, Math.round(parsed));
+	}
+
+	function getRemainingFocusSeconds(endAtMs = focusEndAtMs) {
+		if (!Number.isFinite(endAtMs)) return normalizeFocusSeconds(focusSecondsLeft, focusTargetSeconds);
+		const remainingMs = Number(endAtMs) - Date.now();
+		return Math.max(0, Math.ceil(remainingMs / 1000));
+	}
+
+	function clearFocusTimerTick() {
+		if (focusTimerHandle) {
+			clearInterval(focusTimerHandle);
+			focusTimerHandle = null;
+		}
+	}
+
+	function buildFocusTimerSnapshot() {
+		return {
+			selectedTaskId: selectedTaskId || '',
+			focusTargetSeconds: normalizeFocusSeconds(focusTargetSeconds),
+			focusSecondsLeft: normalizeFocusSeconds(focusSecondsLeft),
+			focusHasStarted: Boolean(focusHasStarted),
+			isFocusRunning: Boolean(isFocusRunning),
+			focusEndAtMs: Number.isFinite(focusEndAtMs) ? Number(focusEndAtMs) : null
+		};
+	}
+
+	function persistFocusTimerSnapshot() {
+		if (typeof window === 'undefined') return;
+		try {
+			if (!focusHasStarted && !isFocusRunning) {
+				window.sessionStorage.removeItem(FOCUS_TIMER_STORAGE_KEY);
+				return;
+			}
+			window.sessionStorage.setItem(FOCUS_TIMER_STORAGE_KEY, JSON.stringify(buildFocusTimerSnapshot()));
+		} catch {
+			// Ignore sessionStorage errors (e.g. private mode restrictions).
+		}
+	}
+
+	function readFocusTimerSnapshot() {
+		if (typeof window === 'undefined') return null;
+		try {
+			const raw = window.sessionStorage.getItem(FOCUS_TIMER_STORAGE_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw);
+			if (!parsed || typeof parsed !== 'object') return null;
+			return parsed;
+		} catch {
+			return null;
+		}
+	}
+
+	function syncFocusTimerFromWallClock({ stopWhenElapsed = true } = {}) {
+		if (!isFocusRunning || !Number.isFinite(focusEndAtMs)) return normalizeFocusSeconds(focusSecondsLeft, focusTargetSeconds);
+		const remaining = getRemainingFocusSeconds(focusEndAtMs);
+		focusSecondsLeft = remaining;
+		if (remaining <= 0 && stopWhenElapsed) {
+			stopFocus();
+		}
+		return remaining;
+	}
+
+	function startFocusTimerTick() {
+		clearFocusTimerTick();
+		if (!Number.isFinite(focusEndAtMs)) {
+			focusEndAtMs = Date.now() + normalizeFocusSeconds(focusSecondsLeft, focusTargetSeconds) * 1000;
+		}
+		isFocusRunning = true;
+		syncFocusTimerFromWallClock();
+		if (!isFocusRunning) return;
+		focusTimerHandle = setInterval(() => {
+			const remaining = syncFocusTimerFromWallClock();
+			if (remaining > 0) {
+				persistFocusTimerSnapshot();
+			}
+		}, 1000);
+		persistFocusTimerSnapshot();
+	}
+
+	function restoreFocusTimerSnapshot() {
+		const snapshot = readFocusTimerSnapshot();
+		if (!snapshot) return false;
+
+		const snapshotTaskId = String(snapshot.selectedTaskId || '');
+		if (snapshotTaskId && tasks.some((task) => String(task._id) === snapshotTaskId)) {
+			selectedTaskId = snapshotTaskId;
+		}
+
+		focusTargetSeconds = normalizeFocusSeconds(snapshot.focusTargetSeconds, getFocusTargetSeconds());
+		focusHasStarted = Boolean(snapshot.focusHasStarted);
+		focusNoteExpanded = false;
+
+		if (snapshot.isFocusRunning && Number.isFinite(Number(snapshot.focusEndAtMs))) {
+			focusEndAtMs = Number(snapshot.focusEndAtMs);
+			focusSecondsLeft = getRemainingFocusSeconds(focusEndAtMs);
+			if (focusSecondsLeft <= 0) {
+				stopFocus();
+				persistFocusTimerSnapshot();
+				return true;
+			}
+			startFocusTimerTick();
+			return true;
+		}
+
+		clearFocusTimerTick();
+		isFocusRunning = false;
+		focusEndAtMs = null;
+		focusSecondsLeft = normalizeFocusSeconds(snapshot.focusSecondsLeft, focusTargetSeconds);
+		persistFocusTimerSnapshot();
+		return true;
+	}
+
 	function priorityBadgeClass(p) {
 		return priorityBadgeClassUtil(p);
 	}
@@ -570,6 +688,7 @@
 		focusTargetSeconds = getFocusTargetSeconds(task);
 		focusSecondsLeft = focusTargetSeconds;
 		focusNoteExpanded = false;
+		persistFocusTimerSnapshot();
 		activeTab = 'focus';
 	}
 
@@ -579,6 +698,7 @@
 		focusTargetSeconds = getFocusTargetSeconds();
 		focusSecondsLeft = focusTargetSeconds;
 		focusNoteExpanded = false;
+		persistFocusTimerSnapshot();
 	}
 
 	function startEditTask(task) {
@@ -794,16 +914,15 @@
 				focusSecondsLeft,
 				focusTargetSeconds,
 				setTaskStatus,
-				startTimerTick: () => {
-					focusTimerHandle = setInterval(() => {
-						focusSecondsLeft -= 1;
-					}, 1000);
-				}
+				startTimerTick: () => startFocusTimerTick()
 			});
 			if (result) {
 				focusSecondsLeft = result.focusSecondsLeft;
 				isFocusRunning = result.isFocusRunning;
 				focusHasStarted = result.focusHasStarted;
+				focusEndAtMs = Date.now() + normalizeFocusSeconds(focusSecondsLeft, focusTargetSeconds) * 1000;
+				startFocusTimerTick();
+				persistFocusTimerSnapshot();
 			}
 		} catch (e) {
 			error = e.message;
@@ -832,11 +951,14 @@
 		focusSecondsLeft = focusTargetSeconds;
 		focusHasStarted = false;
 		focusNoteExpanded = false;
+		persistFocusTimerSnapshot();
 	}
 
 	function stopFocus() {
 		isFocusRunning = false;
-		if (focusTimerHandle) { clearInterval(focusTimerHandle); focusTimerHandle = null; }
+		focusEndAtMs = null;
+		clearFocusTimerTick();
+		persistFocusTimerSnapshot();
 	}
 
 	function formatSeconds(s) {
@@ -1054,16 +1176,41 @@
 	});
 
 	onMount(() => {
+		const handleVisibilityChange = () => {
+			if (document.visibilityState !== 'visible') return;
+			syncFocusTimerFromWallClock();
+			persistFocusTimerSnapshot();
+		};
+		const handlePageHide = () => {
+			if (isFocusRunning) {
+				syncFocusTimerFromWallClock({ stopWhenElapsed: false });
+			}
+			persistFocusTimerSnapshot();
+		};
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('pagehide', handlePageHide);
 		(async () => {
 			await migrateLegacyLocalStorageIfNeeded();
 			await refreshData();
 			applyRouteStateFromQuery();
-			focusTargetSeconds = getFocusTargetSeconds();
-			focusSecondsLeft = focusTargetSeconds;
+			if (!restoreFocusTimerSnapshot()) {
+				focusTargetSeconds = getFocusTargetSeconds();
+				focusSecondsLeft = focusTargetSeconds;
+			}
 			taskForm = buildNewTaskFormDefaults();
 		})();
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('pagehide', handlePageHide);
+		};
 	});
-	onDestroy(() => stopFocus());
+	onDestroy(() => {
+		if (isFocusRunning) {
+			syncFocusTimerFromWallClock({ stopWhenElapsed: false });
+		}
+		persistFocusTimerSnapshot();
+		clearFocusTimerTick();
+	});
 </script>
 
 <svelte:head>
