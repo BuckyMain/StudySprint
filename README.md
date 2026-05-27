@@ -52,9 +52,42 @@ Die Durchführung erfolgt phasenbasiert; dokumentieren Sie die wichtigsten Ergeb
   - Ein reduzierter, studierendengerechter MVP bietet mehr Mehrwert als eine überladene Lösung.
   - **How-Might-We-Fragen:** Wie könnten wir Studierenden helfen, ihre Lernzeit realistischer zu planen? Wie könnten wir Ablenkung während Lernphasen reduzieren? Wie könnten wir Lernfortschritte sichtbar machen, damit Motivation und Selbstorganisation steigen?
 
+#### Persona: Primäre Zielgruppe
+
+> Methode: Proto-Persona, hergeleitet aus Zielgruppenanalyse und eigener Erfahrung als Studierender. Ziel ist die Konkretisierung der Zielgruppe für fundierte Design- und Funktionsentscheide.
+
+| Attribut | Beschreibung |
+|---|---|
+| **Name** | Jonas Meier |
+| **Alter** | 22 Jahre |
+| **Studium** | Bachelor Wirtschaftsinformatik, 4. Semester, ZHAW |
+| **Wohnsituation** | WG, arbeitet 40% nebenbei |
+| **Geräte** | MacBook (primär), iPhone (unterwegs) |
+| **Tech-Affinität** | Hoch – nutzt täglich digitale Tools, aber keine komplexen Setups |
+
+**Ziele:**
+- Prüfungen ohne Nachtschichten bestehen – durch bessere Vorausplanung
+- Lernzeit realistisch einschätzen und nicht unterschätzen
+- Das Gefühl haben, produktiv zu sein – nicht nur beschäftigt
+
+**Frustrationen & Pain Points:**
+- Nutzt Notion für Aufgaben, Apple Reminders für Deadlines und einen Pomodoro-Timer separat – drei Apps, kein durchgängiger Workflow
+- Verliert regelmässig den Überblick bei parallelen Abgaben in 5+ Modulen
+- Beginnt Lernblöcke oft ohne klares Ziel und weiss danach nicht, was er eigentlich erledigt hat
+- Schätzt Bearbeitungszeiten systematisch zu niedrig ein
+
+**Zitate (repräsentativ):**
+> «Ich weiss, was ich tun muss – aber ich weiss nie, womit ich anfangen soll.»
+> «Nach einer Lernstunde bin ich oft nicht sicher, ob ich produktiv war oder nur beschäftigt.»
+
+**Nutzungskontext:**
+- Abends zuhause (1–3 Std. Lernblöcke)
+- Kurze Sessions zwischen Vorlesungen (15–30 Min.)
+- Prüfungsphase: intensive Planungs- und Fokusphasen über mehrere Wochen
+
 ### 3.2 Sketch
 
-- **Variantenüberblick:** Es wurden drei grobe Lösungsrichtungen identifiziert.
+- **Variantenüberblick:** Es wurden drei grobe Lösungsrichtungen identifiziert. Die handgezeichneten Skizzen sind im Anhang verfügbar: [StudySprint_Sketch.pdf](./StudySprint_Sketch.pdf)
 - **Skizzen:**
   - **Variante A: Fokus auf Planung** – Aufgabenverwaltung und Session-Planung stehen im Zentrum. Einfache To-do-Liste mit Zeitschätzungen.
   - **Variante B: Fokus auf Fokusmodus** – Timer und konzentriertes Arbeiten stehen im Zentrum. Pomodoro-ähnliche Struktur ohne Aufgabenverwaltung.
@@ -66,6 +99,18 @@ Die Durchführung erfolgt phasenbasiert; dokumentieren Sie die wichtigsten Ergeb
 - **End-to-End-Ablauf:** Nutzer:in öffnet das Dashboard, legt eine Aufgabe an, startet eine Fokus-Session mit Timer, trägt anschliessend Fortschritt ein, ergänzt eine kurze Reflexion und sieht die aktualisierte Übersicht.
 - **Mockup:** [Figma-Prototyp (Übung 10)](https://www.figma.com/proto/RmKMdEYCp6l5oIJJj5h3HG/StudySprint---Uebung-10-Prototyp?node-id=16-494&t=slL3OtXg9dkGPyHz-1)
 
+#### User Journey Map
+
+> Methode: User Journey Map für den zentralen Workflow «Planung → Fokus → Reflexion → Fortschritt». Grundlage sind die Persona Jonas Meier und die Erkenntnisse aus der Usability Evaluation (v1). Ziel: Pain Points im Ablauf identifizieren und als Designanforderungen ableiten.
+
+| | **1. Planung** | **2. Aufgabe erfassen** | **3. Fokus starten** | **4. Fokussiert arbeiten** | **5. Session abschliessen** | **6. Reflexion** | **7. Fortschritt prüfen** |
+|---|---|---|---|---|---|---|---|
+| **Aktion** | App öffnen, Home-Tab anschauen | Aufgaben-Tab öffnen, neue Aufgabe anlegen | Fokus-Tab öffnen, Aufgabe wählen, Timer starten | Timer läuft, konzentriert arbeiten | Timer ablaufen lassen oder manuell beenden | Bewertung (1–5) und Notiz eingeben | Fortschritts-Tab öffnen, Wochenübersicht anschauen |
+| **Gedanken** | «Was muss ich heute noch erledigen?» | «Wie lange wird das wohl dauern?» | «Ok, jetzt starte ich – kein Ablenkung.» | «Hoffentlich halte ich die Zeit ein.» | «War das jetzt effizient?» | «Kurz notieren, was gut lief.» | «Wie viel habe ich diese Woche geschafft?» |
+| **Gefühl** | 😐 Orientierungssuche | 🙂 Struktur entsteht | 🎯 Fokus und Entschlossenheit | 😤 Konzentration, gelegentlich Ablenkung | 😌 Erleichterung | 🤔 Nachdenklich | 😊 Zufriedenheit / Motivation |
+| **Pain Points (v1)** | Kein Dashboard-Überblick; Quick Actions ohne Mehrwert | Scrollen bis zur Aufgabenliste; kein Modul-Dropdown | «Session»-Begriff verwirrend; Aufgabe unklar auswählbar | Timer stoppt bei Tab-Wechsel (offener Bug) | Unklar wie Session korrekt beendet wird | Reflexion nach Session nicht sichtbar in Fortschritt | Kein Wochenchart; Sessions-Zähler widersprüchlich |
+| **Verbesserung (v2)** | Home zeigt Metriken, nächste Deadline, Aufgaben der Woche | Aufgabenliste im Vordergrund; Subviews für Import/Neu | «Session»-Begriff entfernt; klare Aufgaben-Auswahl | *(technisch offen, GitHub Issue #1)* | Klarer Abschluss-Button; Status wird automatisch gesetzt | Reflexions-Rating und Notiz in Fortschritt sichtbar | Wochenchart, Modul-Aufschlüsselung, Zeitraum-Wechsel |
+
 ### 3.4 Prototype
 
 #### 3.4.1. Entwurf (Design)
@@ -75,7 +120,17 @@ Beschreibt die Gestaltung und Interaktion.
 > **Hinweis:** Hier wird der **Prototyp** beschrieben, nicht das **Mockup**.
 
 - **Informationsarchitektur:** Hauptseiten sind Dashboard (mit Tabs: Home, Aufgaben, Fokus, Fortschritt, Profil), Aufgaben-Übersicht, Aufgabe erstellen/bearbeiten, Fokusmodus und Reflexion. Navigation erfolgt primär über eine Bottom-Tab-Leiste (Mobile-first).
-- **User Interface Design:** _[Screenshots werden nach Deployment ergänzt]_
+- **User Interface Design:** Die App ist mobile-first gestaltet und läuft im Browser. Alle fünf Tabs sind nachfolgend abgebildet.
+
+  | Home-Tab | Aufgaben-Tab | Fokus-Tab |
+  |---|---|---|
+  | <img src="./docs/screenshots/home-tab.png" width="200"/> | <img src="./docs/screenshots/tasks-tab.png" width="200"/> | <img src="./docs/screenshots/focus-tab.png" width="200"/> |
+  | Übersicht mit Metriken, höchstpriorer Aufgabe, Aufgaben der Woche und überfälligen Aufgaben. | Aufgabenliste mit Sortierung (Deadline, Priorität), Modulfilter, Statusfilter und Direktzugriff auf Fokus-Timer. | Countdown-Timer mit Aufgabenauswahl, Pause/Reset und integrierter Reflexionseingabe nach Abschluss. |
+
+  | Fortschritt-Tab | Profil-Tab |
+  |---|---|
+  | <img src="./docs/screenshots/progress-tab.png" width="200"/> | <img src="./docs/screenshots/profile-tab.png" width="200"/> |
+  | Lernfortschritt mit Kennzahlen (erledigte Aufgaben, Fokuszeit, Zeit vs. Schätzung), Wochenchart und Fortschritt nach Modul. | Einstellungen (Name, Wochenziel, Dark Mode), Semesterverwaltung mit Farbzuweisung und Modulverwaltung. |
 - **Designentscheidungen:**
   - Mobile-first mit Bottom-Navigation (Tab-Leiste).
   - Reduzierte, ruhige Oberfläche mit wenig Ablenkung.
@@ -93,7 +148,7 @@ Fasst die technische Realisierung zusammen.
   |---|---|
   | SvelteKit (Svelte 5 Runes) | Frontend-Framework, Routing, API-Handler |
   | Bootstrap 5 + Bootstrap Icons | UI-Styling und Icons |
-  | MongoDB (via `mongodb` Node-Driver) | Persistenz (Tasks, Sessions, Reflections) |
+  | MongoDB (via `mongodb` Node-Driver) | Persistenz (Tasks, Reflections, Semester, Module, Settings) |
   | Google Gemini API (`@google/genai`) | OCR-Erkennung für Deadline-Extraktion |
   | `@sveltejs/adapter-auto` | Deployment-Adapter |
 
@@ -103,18 +158,17 @@ Fasst die technische Realisierung zusammen.
 
   | Komponente | Beschreibung |
   |---|---|
-  | `TaskList.svelte` | Kachelliste aller Aufgaben; dispatcht `toggle`- und `delete`-Events |
-  | `TaskForm.svelte` | Wiederverwendbares Formular für Erstellen und Bearbeiten von Aufgaben |
-  | `FeedbackMessage.svelte` | Zeigt Erfolgs- und Fehlermeldungen an |
+  | `src/lib/features/tabs/HomeTab.svelte` | Home-Tab mit Übersicht, Metriken, nächster Deadline und Aufgaben der Woche |
+  | `src/lib/features/tabs/TasksTab.svelte` | Aufgaben-Tab mit Listen-, Formular- und Import-Subview |
+  | `src/lib/features/tabs/FocusTab.svelte` | Fokus-Tab mit Countdown-Timer, Aufgabenauswahl, Pause/Reset und Reflexionseingabe |
+  | `src/lib/features/tabs/ProgressTab.svelte` | Fortschritts-Tab mit Kennzahlen, Charts und Detailansichten |
+  | `src/lib/features/tabs/ProfileTab.svelte` | Profil-Tab für Settings, Semester/Modul-Verwaltung und Reset |
 
   Implementierte Seiten/Routen:
 
   | Route | Beschreibung |
   |---|---|
   | `/` | Dashboard mit Tab-Navigation (Home, Aufgaben, Fokus, Fortschritt, Profil) |
-  | `/tasks` | Aufgaben-Übersicht mit Filter- und Sortierfunktion |
-  | `/tasks/new` | Neue Aufgabe erfassen |
-  | `/tasks/[id]/edit` | Bestehende Aufgabe bearbeiten |
 
 - **Daten & Schnittstellen:** Daten werden in MongoDB Atlas gespeichert und über REST-API-Endpunkte verwaltet. Das Datenmodell für Tasks:
 
@@ -122,11 +176,15 @@ Fasst die technische Realisierung zusammen.
   {
     "title": "String (Pflicht)",
     "module": "String (Pflicht)",
-    "priority": "Number (1–5, Standard: 3)",
-    "status": "String (open | in-progress | done)",
+    "priority": "String ('1'–'5', Standard: '3')",
+    "status": "String ('offen' | 'in Bearbeitung' | 'erledigt')",
     "dueDate": "Date (optional)",
-    "duration": "Number (Minuten, Standard: 60)",
-    "createdAt": "Date"
+    "duration": "Number (Minuten, Standard: 25)",
+    "semesterId": "String (optional)",
+    "moduleId": "String (optional)",
+    "notes": "String (optional)",
+    "createdAt": "Date",
+    "updatedAt": "Date"
   }
   ```
 
@@ -136,13 +194,17 @@ Fasst die technische Realisierung zusammen.
   |---|---|---|
   | `/api/tasks` | GET, POST | Alle Aufgaben abrufen / neue Aufgabe erstellen |
   | `/api/tasks/[id]` | GET, PATCH, DELETE | Einzelne Aufgabe lesen, aktualisieren, löschen |
-  | `/api/sessions` | GET, POST | Lernsessions abrufen / erstellen |
-  | `/api/sessions/[id]` | PATCH, DELETE | Session aktualisieren / löschen |
   | `/api/reflections` | GET, POST | Reflexionen abrufen / erstellen |
+  | `/api/semesters` | GET, POST | Semester abrufen / erstellen |
+  | `/api/semesters/[id]` | PATCH, DELETE | Semester aktualisieren / löschen |
+  | `/api/modules` | GET, POST | Module abrufen / erstellen |
+  | `/api/modules/[id]` | PATCH, DELETE | Modul aktualisieren / löschen |
+  | `/api/settings` | GET, PUT | Benutzereinstellungen laden / speichern |
+  | `/api/data/reset` | DELETE | Alle Daten löschen (in Prod per Token geschützt) |
   | `/api/deadlines/extract` | POST | Deadlines per Regex aus Text extrahieren |
   | `/api/deadlines/ocr` | POST | Deadlines aus Bild per Google Gemini extrahieren |
 
-- **Deployment:** *(Link wird nach Deployment ergänzt)* – Platform: Netlify / Vercel (via `@sveltejs/adapter-auto`). Benötigte Umgebungsvariablen: `MONGODB_URI`, `MONGODB_DB_NAME`, `GEMINI_API_KEY`.
+- **Deployment:** [https://studysprintver2.netlify.app/](https://studysprintver2.netlify.app/) – Platform: Netlify (via `@sveltejs/adapter-auto`). Benötigte Umgebungsvariablen: `MONGODB_URI`, `MONGODB_DB_NAME`, `GEMINI_API_KEY`.
 
   Lokale Entwicklung:
 
@@ -152,23 +214,23 @@ Fasst die technische Realisierung zusammen.
   npm run dev
   ```
 
-- **Besondere Entscheidungen:** MongoDB wurde gegenüber einer SQL-Datenbank bevorzugt, da das Datenmodell flexibel und schemalos entwickelt werden sollte. Die Reflexions- und Session-Entitäten wurden bewusst getrennt gehalten, um spätere Erweiterungen zu vereinfachen. OCR-Deadline-Erkennung wurde als optionale Erweiterung über die Gemini API integriert, da eine lokale OCR-Lösung zu aufwändig gewesen wäre.
+- **Besondere Entscheidungen:** MongoDB wurde gegenüber einer SQL-Datenbank bevorzugt, da das Datenmodell flexibel und schemalos entwickelt werden sollte. Der Fokus lag auf einem konsistenten Task/Reflexions-Flow mit semester- und modulbezogener Struktur. OCR-Deadline-Erkennung wurde als optionale Erweiterung über die Gemini API integriert, da eine lokale OCR-Lösung zu aufwändig gewesen wäre.
 
 ### 3.5 Validate
 
-- **URL der getesteten Version:** *(wird nach Deployment ergänzt)*
-- **Ziele der Prüfung:** Es soll untersucht werden, ob Nutzer:innen den Ablauf intuitiv verstehen, Aufgaben einfach erstellen und bearbeiten können, der Fokusmodus als hilfreich wahrgenommen wird und Fortschritt sowie Reflexion verständlich sind.
-- **Vorgehen:** *(wird nach Evaluation ergänzt – geplant: moderiert, on-site)*
-- **Stichprobe:** *(wird nach Evaluation ergänzt)*
+- **URL der getesteten Version:** [https://studysprintv1.netlify.app/](https://studysprintv1.netlify.app/)
+- **Ziele der Prüfung:** Überprüfen, ob Nutzer:innen den zentralen Lernworkflow (Planung → Fokus → Fortschritt → Reflexion) intuitiv verstehen, Aufgaben selbstständig erstellen und verwalten können und ob Fortschritt sowie Deadline-Import verständlich sind.
+- **Vorgehen:** Moderierte On-site-Evaluation (Kleinklasse). Testpersonen erhielten schriftliche Aufgaben auf separatem Gerät und wurden gebeten, laut zu denken. Testleiter:in notierte Beobachtungen im Feedback Grid ohne Hinweise zu geben. Abschliessend kurzes Interview.
+- **Stichprobe:** 2 Mitstudierende (ZHAW), keine Vorerfahrung mit StudySprint; Datum: 20.05.2026
 - **Aufgaben/Szenarien:**
-  1. Lege eine neue Aufgabe für ein Modul an.
-  2. Setze die Aufgabe auf «In Bearbeitung».
-  3. Starte eine Fokus-Session und schliesse sie ab.
-  4. Hinterlasse eine kurze Reflexion zur Session.
-  5. Bearbeite die Aufgabe und ändere die Priorität.
-- **Kennzahlen & Beobachtungen:** *(wird nach Evaluation ergänzt)*
-- **Zusammenfassung der Resultate:** *(wird nach der Evaluation ergänzt)*
-- **Abgeleitete Verbesserungen:** *(wird nach der Evaluation ergänzt)*
+  1. Lernaufgabe für ein Modul anlegen (Einstieg).
+  2. Aufgabe bearbeiten und als hochprioritär markieren.
+  3. Fokus-Session starten und abschliessen.
+  4. Reflexion nach der Session erfassen.
+  5. Lernfortschritt und absolvierte Sessions nachvollziehen.
+- **Kennzahlen & Beobachtungen:** 16 Usability-Issues identifiziert; 4 mit Schweregrad 3–4 (kritisch). Detaillierte Issue Map in [`EVALUATION.md`](./EVALUATION.md).
+- **Zusammenfassung der Resultate:** Der Gesamtworkflow ist grundsätzlich verständlich; die Startseite verschafft einen guten Überblick. Positiv hervorgehoben wurden der Fortschritts-Tab und der Semesterplan-Import. Kritische Probleme: fehlende Import-Review (Tasks konnten nicht einzeln geprüft/übernommen werden), inkonsistente Navigation, und der Begriff «Session» schuf konzeptuelle Verwirrung. Die OCR-Funktion lieferte unzuverlässige Ergebnisse.
+- **Abgeleitete Verbesserungen:** Menüpunkt «Validate» entfernt, Import-Review implementiert, Navigation vereinheitlicht, Aufgabenliste in den Vordergrund gestellt, Sortierung/Filterung ergänzt, Fortschritts-Tab mit Detailinfos ausgebaut. Vollständige Verbesserungsliste in `EVALUATION.md §3.4`.
 
 ## 4. Erweiterungen
 Dokumentiert Erweiterungen über den Mindestumfang hinaus.
@@ -200,18 +262,18 @@ Dokumentiert Erweiterungen über den Mindestumfang hinaus.
 - **Referenz:** Fokus-Workflow-Beschreibung in Kap. 3.4.2; API-Tabelle in Kap. 3.4.2
 - **Aus Evaluation abgeleitet?:** Nein, von Beginn an Teil des Konzepts.
 
-### 4.4 Sessions-Persistenz
-- **Beschreibung & Nutzen:** Lernsessions werden mit Thema, Modul, Startzeit und Dauer in MongoDB gespeichert. Ermöglicht die Anzeige von Fortschrittsstatistiken.
+### 4.4 Konsolidierter Task-Flow
+- **Beschreibung & Nutzen:** Der Aufgaben-Flow wurde auf eine einzige Hauptroute (`/` mit Tab-Views) konsolidiert. Das reduziert doppelte UI-Logik und vereinfacht Wartung sowie Navigation.
 - **Wo umgesetzt:**
-  - **Backend:** API-Endpunkte `/api/sessions` und `/api/sessions/[id]` in `src/routes/api/sessions/`
-  - **Datenbank:** Separate `sessions`-Collection in MongoDB
-- **Referenz:** API-Tabelle und Fortschritts-Workflow in Kap. 3.4.2
-- **Aus Evaluation abgeleitet?:** Nein, strukturell notwendig für den Fortschritts-Tab.
+  - **Frontend:** Tab-Komponenten unter `src/lib/features/tabs/` (`TasksTab`, `ProfileTab`, `ProgressTab`, `HomeTab`, `FocusTab`)
+  - **Routing:** Der Aufgabenfluss ist vollständig im Dashboard (`/`) über den Aufgaben-Tab integriert.
+- **Referenz:** Routen-Tabelle und Struktur-Abschnitt in Kap. 3.4.2
+- **Aus Evaluation abgeleitet?:** Teilweise — zusätzlich aus technischem Refactoring zur Reduktion von Duplikaten.
 
 ### 4.5 Prioritäten-System
 - **Beschreibung & Nutzen:** Aufgaben können mit Priorität 1–5 versehen werden. Ermöglicht bessere Priorisierung im Lernalltag.
 - **Wo umgesetzt:**
-  - **Frontend:** Prioritäts-Selektor im `TaskForm.svelte`
+  - **Frontend:** Prioritäts-Selektor im Aufgaben-Tab (`src/lib/features/tabs/TasksTab.svelte`)
   - **Backend:** `priority`-Feld im Task-Datenmodell, gespeichert in MongoDB
 - **Referenz:** Datenmodell in Kap. 3.4.2
 - **Aus Evaluation abgeleitet?:** Nein, von Beginn an geplant.
@@ -219,7 +281,7 @@ Dokumentiert Erweiterungen über den Mindestumfang hinaus.
 ### 4.6 Filter & Sortierung
 - **Beschreibung & Nutzen:** Die Aufgabenliste unterstützt Filterung nach Status und Sortierung nach Priorität, Fälligkeit und Erstelldatum. Verbessert die Übersicht bei vielen Aufgaben.
 - **Wo umgesetzt:**
-  - **Frontend:** Filter- und Sortier-Dropdowns in der Aufgaben-Übersicht (`/tasks`)
+  - **Frontend:** Filter- und Sortier-Dropdowns im Aufgaben-Tab auf `/`
   - **Backend:** Query-Parameter-Verarbeitung im API-Endpunkt `/api/tasks`
 - **Referenz:** Routen-Tabelle in Kap. 3.4.2
 - **Aus Evaluation abgeleitet?:** Nein, von Beginn an geplant.
@@ -232,7 +294,7 @@ Dokumentiert Erweiterungen über den Mindestumfang hinaus.
 - **Aus Evaluation abgeleitet?:** Nein, zentrales Feature des Konzepts.
 
 ## 5. Projektorganisation
-- **Repository & Struktur:** [GitHub – StudySprint](https://github.com/manuelmarti/StudySprint) *(Link wird ergänzt)*. Struktur: `src/routes/` für Seiten und API-Handler, `src/lib/` für wiederverwendbare Komponenten und Stores.
+- **Repository & Struktur:** [GitHub – StudySprint](https://github.com/BuckyMain/StudySprint). Struktur: `src/routes/` für Seiten und API-Handler, `src/lib/` für wiederverwendbare Komponenten und Stores.
 - **Issue-Management:** Aufgaben und Bugs werden als GitHub Issues erfasst und nach Priorität bearbeitet.
 - **Commit-Praxis:** Sprechende Commits mit Präfixen (`feat:`, `fix:`, `refactor:`, `docs:`). Entwicklung primär auf `main`, Feature-Branches bei grösseren Änderungen.
 
@@ -262,5 +324,5 @@ KI ist besonders bei Strukturierung, Boilerplate-Code und Formulierungen hilfrei
 
 - **Quellen:**
   - App-Icon: [Flaticon – Study Icon](https://www.flaticon.com/de/kostenloses-icon/study_8445148)
-- **Testskript & Materialien:** *(wird nach Evaluation ergänzt)*
-- **Rohdaten/Auswertung:** *(wird nach Evaluation ergänzt)*
+- **Testskript & Materialien:** Siehe [`EVALUATION.md`](./EVALUATION.md) – Abschnitte 1 (Vorbereitung) und 2 (Durchführung)
+- **Rohdaten/Auswertung:** Siehe [`EVALUATION.md`](./EVALUATION.md) – Abschnitt 3 (Auswertung, Issue Map, abgeleitete Verbesserungen)
