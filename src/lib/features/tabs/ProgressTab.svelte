@@ -132,7 +132,7 @@
 			{#each progressChartData as day}
 				<div class="flex-grow-1 d-flex flex-column align-items-center gap-1">
 					<div
-						class={`rounded-top w-100 ${day.isToday ? 'bg-primary' : 'bg-secondary bg-opacity-25'}`}
+						class="rounded-top w-100 bg-primary"
 						style="height: {Math.max(4, Math.round((day.count / progressMaxChartCount) * 52))}px; transition: height 0.3s;"
 					></div>
 					<span class={`small ${day.isToday ? 'fw-bold text-primary' : 'text-secondary'}`} style="font-size: 10px;">
