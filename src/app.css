@@ -126,11 +126,11 @@ body {
   opacity: 0.9;
 }
 
-[data-bs-theme="dark"] #new-due::-webkit-calendar-picker-indicator {
+[data-bs-theme="dark"] #new-due::-webkit-calendar-picker-indicator, #edit-due::-webkit-calendar-picker-indicator {
   filter: none;
   opacity: 1;
 }
 
-[data-bs-theme="dark"] #new-due {
+[data-bs-theme="dark"] #new-due, #edit-due {
   color-scheme: dark;
 }
