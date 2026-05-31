@@ -1,17 +1,29 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { requireUser } from '$lib/server/auth';
 import { jsonError, readJsonBody } from '$lib/server/http';
 
 const ALLOWED_RATINGS = new Set(['Sehr fokussiert', 'Okay', 'Abgelenkt']);
 
-export async function GET() {
+export async function GET(event) {
 
 	const db = await getDb();
-	const reflections = await db.collection('reflections').find({}).sort({ createdAt: -1 }).toArray();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const reflections = await db
+		.collection('reflections')
+		.find({ userId })
+		.sort({ createdAt: -1 })
+		.toArray();
 	return json(reflections);
 }
 
-export async function POST({ request }) {
+export async function POST(event) {
+	const { request } = event;
+	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
 
 	const body = await readJsonBody(request);
 	if (!body.ok) return body.response;
@@ -22,6 +34,7 @@ export async function POST({ request }) {
 		return jsonError('Ungültige Bewertung', 400);
 	}
 	const reflection = {
+		userId: auth.user.id,
 		sessionId: payload.sessionId || null,
 		taskId: payload.taskId || null,
 		rating,
@@ -30,7 +43,6 @@ export async function POST({ request }) {
 		createdAt: new Date()
 	};
 
-	const db = await getDb();
 	const result = await db.collection('reflections').insertOne(reflection);
 	return json({ ...reflection, _id: result.insertedId });
 }

@@ -1,24 +1,30 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { requireUser } from '$lib/server/auth';
 import { parseObjectId } from '$lib/server/ids';
 import { ALLOWED_TASK_PRIORITIES, ALLOWED_TASK_STATUS } from '$lib/server/task-constants';
 import { deleteReflectionsForTaskIds } from '$lib/server/cascade';
 import { jsonError, readJsonBody } from '$lib/server/http';
 
-export async function GET({ params }) {
+export async function GET(event) {
+	const { params } = event;
 
 	const taskId = parseObjectId(params.id);
 	if (!taskId) return jsonError('Invalid id', 400);
 
 	const db = await getDb();
-	const task = await db.collection('tasks').findOne({ _id: taskId });
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const task = await db.collection('tasks').findOne({ _id: taskId, userId });
 	if (!task) return json({ error: 'Task not found' }, { status: 404 });
 
 	return json(task);
 }
 
 
-export async function PATCH({ params, request }) {
+export async function PATCH(event) {
+	const { params, request } = event;
 
 	const taskId = parseObjectId(params.id);
 	if (!taskId) return jsonError('Invalid id', 400);
@@ -64,21 +70,28 @@ export async function PATCH({ params, request }) {
 	}
 
 	const db = await getDb();
-	const result = await db.collection('tasks').updateOne({ _id: taskId }, { $set: update });
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const result = await db.collection('tasks').updateOne({ _id: taskId, userId }, { $set: update });
 	if (result.matchedCount === 0) {
 		return jsonError('Task not found', 404);
 	}
-	const task = await db.collection('tasks').findOne({ _id: taskId });
+	const task = await db.collection('tasks').findOne({ _id: taskId, userId });
 	return json(task);
 }
 
-export async function DELETE({ params }) {
+export async function DELETE(event) {
+	const { params } = event;
 
 	const taskId = parseObjectId(params.id);
 	if (!taskId) return jsonError('Invalid id', 400);
 
 	const db = await getDb();
-	const result = await db.collection('tasks').deleteOne({ _id: taskId });
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const result = await db.collection('tasks').deleteOne({ _id: taskId, userId });
 	if (result.deletedCount === 0) {
 		return jsonError('Task not found', 404);
 	}

@@ -39,6 +39,12 @@
 		normalizeSemesters
 	} from '$lib/features/shared/api-client';
 	import {
+		loadCurrentUserAction,
+		loginAction,
+		logoutAction,
+		registerAction
+	} from '$lib/features/auth/auth-actions';
+	import {
 		createTaskAction,
 		deleteTaskAction,
 		setTaskStatusAction,
@@ -84,6 +90,12 @@
 	let activeTab = $state('home');
 	let loading = $state(false);
 	let error = $state('');
+	let authUser = $state(null);
+	let authMode = $state('login');
+	let authEmail = $state('');
+	let authPassword = $state('');
+	let authLoading = $state(false);
+	const isAuthenticated = $derived(Boolean(authUser));
 
 	let tasks = $state([]);
 	let reflections = $state([]);
@@ -594,11 +606,62 @@
 		return apiClient(path, options);
 	}
 
+	function clearInMemoryData() {
+		tasks = [];
+		reflections = [];
+		mySemesters = [];
+		myModules = [];
+		activeSemesterId = '';
+		progressFilterSemester = '';
+		progressFilterModule = '';
+		selectedTaskId = '';
+		taskSubView = 'list';
+		confirmingDeleteAllData = false;
+	}
+
+	async function bootstrapAuth() {
+		authUser = await loadCurrentUserAction({ api });
+	}
+
+	async function submitAuth() {
+		error = '';
+		authLoading = true;
+		try {
+			const email = authEmail.trim();
+			const password = authPassword;
+			authUser = authMode === 'register'
+				? await registerAction({ api, email, password })
+				: await loginAction({ api, email, password });
+			authPassword = '';
+			await migrateLegacyLocalStorageIfNeeded();
+			await refreshData();
+		} catch (e) {
+			error = e.message;
+		} finally {
+			authLoading = false;
+		}
+	}
+
+	async function logout() {
+		error = '';
+		try {
+			await logoutAction({ api });
+			authUser = null;
+			clearInMemoryData();
+		} catch (e) {
+			error = e.message;
+		}
+	}
+
 	function normalizeExtractedDeadlines(items = []) {
 		return normalizeExtractedDeadlinesUtil(items);
 	}
 
 	async function refreshData(showLoading = true) {
+		if (!isAuthenticated) {
+			clearInMemoryData();
+			return;
+		}
 		if (showLoading) loading = true;
 		error = '';
 		try {
@@ -1190,8 +1253,13 @@
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		window.addEventListener('pagehide', handlePageHide);
 		(async () => {
-			await migrateLegacyLocalStorageIfNeeded();
-			await refreshData();
+			await bootstrapAuth();
+			if (authUser) {
+				await migrateLegacyLocalStorageIfNeeded();
+				await refreshData();
+			} else {
+				loading = false;
+			}
 			applyRouteStateFromQuery();
 			if (!restoreFocusTimerSnapshot()) {
 				focusTargetSeconds = getFocusTargetSeconds();
@@ -1221,18 +1289,65 @@
 <main class="app-shell">
 	<header class="p-3 pb-2">
 		<div class="hero-gradient rounded-4 p-3 shadow-sm">
-			<h1 class="h4 mb-0">StudySprint{userName ? ` · Hallo ${userName}` : ''}</h1>
+			<h1 class="h4 mb-0">
+				StudySprint{isAuthenticated ? ` · Hallo ${userName || authUser?.email || ''}` : ''}
+			</h1>
 		</div>
 	</header>
 
 	<section class="px-3 pb-4">
+		{#if error}
+			<div class="alert alert-danger py-2 small">{error}</div>
+		{/if}
+		{#if !isAuthenticated}
+			<div class="card rounded-4 border-0 shadow-sm">
+				<div class="card-body">
+					<h2 class="h5 mb-3">{authMode === 'register' ? 'Konto erstellen' : 'Anmelden'}</h2>
+					<p class="small text-secondary mb-3">
+						Melde dich an, damit deine Daten nur deinem Konto zugeordnet sind.
+					</p>
+					<div class="mb-3">
+						<label class="form-label small fw-semibold" for="auth-email">E-Mail</label>
+						<input
+							id="auth-email"
+							class="form-control rounded-3"
+							type="email"
+							autocomplete="email"
+							bind:value={authEmail}
+						/>
+					</div>
+					<div class="mb-3">
+						<label class="form-label small fw-semibold" for="auth-password">Passwort</label>
+						<input
+							id="auth-password"
+							class="form-control rounded-3"
+							type="password"
+							autocomplete={authMode === 'register' ? 'new-password' : 'current-password'}
+							bind:value={authPassword}
+						/>
+						<p class="small text-secondary mt-1 mb-0">Mindestens 8 Zeichen.</p>
+					</div>
+					<button class="btn btn-primary rounded-pill w-100" type="button" disabled={authLoading} onclick={submitAuth}>
+						{authLoading ? 'Bitte warten...' : authMode === 'register' ? 'Registrieren' : 'Anmelden'}
+					</button>
+					<button
+						class="btn btn-link w-100 mt-2 text-decoration-none"
+						type="button"
+						onclick={() => {
+							authMode = authMode === 'register' ? 'login' : 'register';
+							error = '';
+						}}
+					>
+						{authMode === 'register'
+							? 'Bereits ein Konto? Jetzt anmelden'
+							: 'Noch kein Konto? Jetzt registrieren'}
+					</button>
+				</div>
+			</div>
+		{:else}
 			{#if loading}
 				<div class="alert alert-info py-2 small">Daten werden geladen...</div>
 			{/if}
-			{#if error}
-				<div class="alert alert-danger py-2 small">{error}</div>
-			{/if}
-
 			<!-- ==================== HOME ==================== -->
 			{#if activeTab === 'home'}
 				<HomeTab
@@ -1376,6 +1491,8 @@
 					bind:darkMode
 					{saveSettings}
 					{settingsSaved}
+					currentUserEmail={authUser?.email || ''}
+					{logout}
 					{mySemesters}
 					bind:activeSemesterId
 					{setActiveSemester}
@@ -1399,23 +1516,26 @@
 					{requestDeleteAllData}
 				/>
 			{/if}
+		{/if}
 		</section>
 
-	<nav class="bottom-nav fixed-bottom border-top py-2 px-2">
-		<div class="d-flex justify-content-around">
-			{#each tabs as tab}
-				<button
-					class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1 mb-2 mt-2"
-					class:btn-primary={activeTab === tab}
-					class:btn-light={activeTab !== tab}
-					onclick={() => { activeTab = tab; if (tab === 'tasks') taskSubView = 'list'; }}
-				>
-					<i class={`bi ${tabIcons[tab]}`}></i>
-					<span style="font-size: 10px;">{tabLabels[tab]}</span>
-				</button>
-			{/each}
-		</div>
-	</nav>
+	{#if isAuthenticated}
+		<nav class="bottom-nav fixed-bottom border-top py-2 px-2">
+			<div class="d-flex justify-content-around">
+				{#each tabs as tab}
+					<button
+						class="btn btn-sm nav-btn d-flex flex-column align-items-center gap-1 mb-2 mt-2"
+						class:btn-primary={activeTab === tab}
+						class:btn-light={activeTab !== tab}
+						onclick={() => { activeTab = tab; if (tab === 'tasks') taskSubView = 'list'; }}
+					>
+						<i class={`bi ${tabIcons[tab]}`}></i>
+						<span style="font-size: 10px;">{tabLabels[tab]}</span>
+					</button>
+				{/each}
+			</div>
+		</nav>
+	{/if}
 </main>
 
 <style>

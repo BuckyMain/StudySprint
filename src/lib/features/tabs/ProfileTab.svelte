@@ -5,6 +5,8 @@
 		darkMode = $bindable(false),
 		saveSettings,
 		settingsSaved = false,
+		currentUserEmail = '',
+		logout,
 		mySemesters = [],
 		activeSemesterId = $bindable(''),
 		setActiveSemester,
@@ -92,6 +94,12 @@
 			<i class="bi {settingsSaved ? 'bi-check-circle-fill' : 'bi-check-lg'} me-1"></i>
 			{settingsSaved ? 'Gespeichert!' : 'Einstellungen speichern'}
 		</button>
+		<div class="d-flex align-items-center justify-content-between mt-3 small text-secondary">
+			<span>{currentUserEmail}</span>
+			<button class="btn btn-sm btn-outline-secondary rounded-pill" type="button" onclick={logout}>
+				<i class="bi bi-box-arrow-right me-1"></i>Abmelden
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -257,10 +265,10 @@
 <div class="card rounded-4 border-0 shadow-sm border-danger-subtle">
 	<div class="card-body">
 		<h3 class="h6 mb-1 text-danger">Daten zurücksetzen</h3>
-		<p class="small text-secondary mb-3">Diese Aktion kann nicht rückgängig gemacht werden und löscht alle gespeicherten Daten.</p>
+		<p class="small text-secondary mb-3">Diese Aktion kann nicht rückgängig gemacht werden und löscht nur deine gespeicherten Daten.</p>
 		{#if confirmingDeleteAllData}
 			<div class="d-flex flex-column gap-2">
-				<span class="small text-danger fw-semibold">Wirklich alle Daten (Aufgaben, Reflexionen, Semester, Module, Einstellungen) löschen?</span>
+				<span class="small text-danger fw-semibold">Wirklich alle deine Daten (Aufgaben, Reflexionen, Semester, Module, Einstellungen) löschen?</span>
 				<div class="d-flex gap-2">
 					<button class="btn btn-danger rounded-pill flex-grow-1" type="button" onclick={deleteAllData}>Ja, alles löschen</button>
 					<button class="btn btn-outline-secondary rounded-pill flex-grow-1" type="button" onclick={cancelDeleteAllData}>Nein</button>

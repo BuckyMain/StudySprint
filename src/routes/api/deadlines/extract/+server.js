@@ -1,4 +1,6 @@
 import { json } from '@sveltejs/kit';
+import { getDb } from '$lib/server/db';
+import { requireUser } from '$lib/server/auth';
 
 const DATE_REGEX = /\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b/g;
 
@@ -16,7 +18,12 @@ function moduleFromLine(line) {
 	return 'Allgemein';
 }
 
-export async function POST({ request }) {
+export async function POST(event) {
+	const { request } = event;
+	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+
 	const { text } = await request.json();
 	const source = String(text || '').trim();
 	if (!source) return json({ items: [] });

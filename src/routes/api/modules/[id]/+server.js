@@ -1,10 +1,12 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { requireUser } from '$lib/server/auth';
 import { parseObjectId } from '$lib/server/ids';
 import { deleteReflectionsForTaskIds } from '$lib/server/cascade';
 import { jsonError, readJsonBody } from '$lib/server/http';
 
-export async function PATCH({ params, request }) {
+export async function PATCH(event) {
+	const { params, request } = event;
 	const moduleId = parseObjectId(params.id);
 	if (!moduleId) return jsonError('Invalid id', 400);
 
@@ -25,8 +27,11 @@ export async function PATCH({ params, request }) {
 	}
 
 	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
 	try {
-		const result = await db.collection('modules').updateOne({ _id: moduleId }, { $set: update });
+		const result = await db.collection('modules').updateOne({ _id: moduleId, userId }, { $set: update });
 		if (result.matchedCount === 0) {
 			return jsonError('Module not found', 404);
 		}
@@ -36,34 +41,39 @@ export async function PATCH({ params, request }) {
 		}
 		throw error;
 	}
-	const moduleItem = await db.collection('modules').findOne({ _id: moduleId });
+	const moduleItem = await db.collection('modules').findOne({ _id: moduleId, userId });
 	return json(moduleItem);
 }
 
-export async function DELETE({ params }) {
+export async function DELETE(event) {
+	const { params } = event;
 	const moduleId = parseObjectId(params.id);
 	if (!moduleId) return jsonError('Invalid id', 400);
 
 	const db = await getDb();
-	const moduleItem = await db.collection('modules').findOne({ _id: moduleId });
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const moduleItem = await db.collection('modules').findOne({ _id: moduleId, userId });
 	if (!moduleItem) return jsonError('Module not found', 404);
 	const moduleIdString = String(moduleId);
 	const taskFilter = moduleItem?.semesterId && moduleItem?.name
 		? {
+			userId,
 			$or: [
 				{ moduleId: moduleIdString },
 				{ module: moduleItem.name, semesterId: moduleItem.semesterId },
 				{ moduleName: moduleItem.name, semesterId: moduleItem.semesterId }
 			]
 		}
-		: { moduleId: moduleIdString };
+		: { userId, moduleId: moduleIdString };
 
 	const taskIds = await db.collection('tasks').find(taskFilter, { projection: { _id: 1 } }).toArray();
 	await deleteReflectionsForTaskIds(db, taskIds.map((task) => task._id));
 
 	await Promise.all([
 		db.collection('tasks').deleteMany(taskFilter),
-		db.collection('modules').deleteOne({ _id: moduleId })
+		db.collection('modules').deleteOne({ _id: moduleId, userId })
 	]);
 	return json({ ok: true });
 }

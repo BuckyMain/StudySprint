@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { requireUser } from '$lib/server/auth';
 import { jsonError, readJsonBody } from '$lib/server/http';
 
 function normalizeColor(value) {
@@ -8,17 +9,25 @@ function normalizeColor(value) {
 	return color;
 }
 
-export async function GET() {
+export async function GET(event) {
 	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
 	const semesters = await db
 		.collection('semesters')
-		.find({})
+		.find({ userId })
 		.sort({ isActive: -1, createdAt: -1 })
 		.toArray();
 	return json(semesters);
 }
 
-export async function POST({ request }) {
+export async function POST(event) {
+	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const { request } = event;
 	const body = await readJsonBody(request);
 	if (!body.ok) return body.response;
 
@@ -30,9 +39,9 @@ export async function POST({ request }) {
 		return jsonError('Semestername ist erforderlich', 400);
 	}
 
-	const db = await getDb();
-	const hasAnySemester = await db.collection('semesters').findOne({});
+	const hasAnySemester = await db.collection('semesters').findOne({ userId });
 	const semester = {
+		userId,
 		name,
 		color,
 		isActive: payload.isActive === true || !hasAnySemester,
@@ -41,7 +50,9 @@ export async function POST({ request }) {
 	};
 
 	if (semester.isActive) {
-		await db.collection('semesters').updateMany({}, { $set: { isActive: false, updatedAt: new Date() } });
+		await db
+			.collection('semesters')
+			.updateMany({ userId }, { $set: { isActive: false, updatedAt: new Date() } });
 	}
 
 	try {

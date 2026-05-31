@@ -1,16 +1,26 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
+import { requireUser } from '$lib/server/auth';
 import { jsonError, readJsonBody } from '$lib/server/http';
 
-export async function GET({ url }) {
+export async function GET(event) {
+	const { url } = event;
 	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
 	const semesterId = String(url.searchParams.get('semesterId') || '').trim();
-	const query = semesterId ? { semesterId } : {};
+	const query = semesterId ? { userId, semesterId } : { userId };
 	const modules = await db.collection('modules').find(query).sort({ createdAt: -1 }).toArray();
 	return json(modules);
 }
 
-export async function POST({ request }) {
+export async function POST(event) {
+	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const { request } = event;
 	const body = await readJsonBody(request);
 	if (!body.ok) return body.response;
 
@@ -24,6 +34,7 @@ export async function POST({ request }) {
 	}
 
 	const moduleItem = {
+		userId,
 		name,
 		color,
 		semesterId,
@@ -31,7 +42,6 @@ export async function POST({ request }) {
 		updatedAt: new Date()
 	};
 
-	const db = await getDb();
 	try {
 		const result = await db.collection('modules').insertOne(moduleItem);
 		return json({ ...moduleItem, _id: result.insertedId });

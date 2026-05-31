@@ -174,6 +174,7 @@ Fasst die technische Realisierung zusammen.
 
   ```json
   {
+    "userId": "String (Pflicht, aus Session)",
     "title": "String (Pflicht)",
     "module": "String (Pflicht)",
     "priority": "String ('1'–'5', Standard: '3')",
@@ -192,6 +193,10 @@ Fasst die technische Realisierung zusammen.
 
   | Endpunkt | Methoden | Funktion |
   |---|---|---|
+  | `/api/auth/register` | POST | Benutzerkonto erstellen (E-Mail/Passwort) und Session setzen |
+  | `/api/auth/login` | POST | Anmelden und Session setzen |
+  | `/api/auth/logout` | POST | Session beenden |
+  | `/api/auth/me` | GET | Aktuell angemeldeten Benutzer laden |
   | `/api/tasks` | GET, POST | Alle Aufgaben abrufen / neue Aufgabe erstellen |
   | `/api/tasks/[id]` | GET, PATCH, DELETE | Einzelne Aufgabe lesen, aktualisieren, löschen |
   | `/api/reflections` | GET, POST | Reflexionen abrufen / erstellen |
@@ -200,18 +205,25 @@ Fasst die technische Realisierung zusammen.
   | `/api/modules` | GET, POST | Module abrufen / erstellen |
   | `/api/modules/[id]` | PATCH, DELETE | Modul aktualisieren / löschen |
   | `/api/settings` | GET, PUT | Benutzereinstellungen laden / speichern |
-  | `/api/data/reset` | DELETE | Alle Daten löschen (in Prod per Token geschützt) |
+  | `/api/data/reset` | DELETE | Nur Daten des aktuellen Benutzers löschen |
   | `/api/deadlines/extract` | POST | Deadlines per Regex aus Text extrahieren |
   | `/api/deadlines/ocr` | POST | Deadlines aus Bild per Google Gemini extrahieren |
 
-- **Deployment:** [https://studysprintver2.netlify.app/](https://studysprintver2.netlify.app/) – Platform: Netlify (via `@sveltejs/adapter-auto`). Benötigte Umgebungsvariablen: `MONGODB_URI`, `MONGODB_DB_NAME`, `GEMINI_API_KEY`.
+- **Deployment:** [https://studysprintver2.netlify.app/](https://studysprintver2.netlify.app/) – Platform: Netlify (via `@sveltejs/adapter-auto`). Benötigte Umgebungsvariablen: `MONGODB_URI`, `MONGODB_DB_NAME`, `GEMINI_API_KEY`, `AUTH_SESSION_SECRET`. Für Legacy-Datenmigration zusätzlich einmalig: `AUTH_BOOTSTRAP_EMAIL`, `AUTH_BOOTSTRAP_PASSWORD`.
 
   Lokale Entwicklung:
 
   ```sh
   npm install
-  # .env-Datei erstellen mit MONGODB_URI, MONGODB_DB_NAME, GEMINI_API_KEY
+  # .env-Datei erstellen mit MONGODB_URI, MONGODB_DB_NAME, GEMINI_API_KEY, AUTH_SESSION_SECRET
+  # optional fuer Legacy-Migration: AUTH_BOOTSTRAP_EMAIL, AUTH_BOOTSTRAP_PASSWORD
   npm run dev
+  ```
+
+  Optionaler Isolationstest (setzt laufende App voraus):
+
+  ```sh
+  npm run test:isolation
   ```
 
 - **Besondere Entscheidungen:** MongoDB wurde gegenüber einer SQL-Datenbank bevorzugt, da das Datenmodell flexibel und schemalos entwickelt werden sollte. Der Fokus lag auf einem konsistenten Task/Reflexions-Flow mit semester- und modulbezogener Struktur. OCR-Deadline-Erkennung wurde als optionale Erweiterung über die Gemini API integriert, da eine lokale OCR-Lösung zu aufwändig gewesen wäre.

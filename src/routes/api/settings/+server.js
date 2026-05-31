@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-
-const SETTINGS_ID = 'app-settings';
+import { requireUser } from '$lib/server/auth';
 
 function normalizeSettings(payload = {}) {
 	return {
@@ -14,12 +13,15 @@ function normalizeSettings(payload = {}) {
 	};
 }
 
-export async function GET() {
+export async function GET(event) {
 	const db = await getDb();
-	const doc = await db.collection('settings').findOne({ _id: SETTINGS_ID });
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+	const doc = await db.collection('settings').findOne({ userId });
 	if (!doc) {
 		return json({
-			_id: SETTINGS_ID,
+			userId,
 			userName: '',
 			darkMode: false,
 			weeklyGoalHours: 10,
@@ -30,15 +32,20 @@ export async function GET() {
 	return json(doc);
 }
 
-export async function PUT({ request }) {
+export async function PUT(event) {
+	const { request } = event;
+	const db = await getDb();
+	const auth = await requireUser(event, db);
+	if (!auth.ok) return auth.response;
+	const userId = auth.user.id;
+
 	const payload = await request.json();
 	const settings = normalizeSettings(payload);
-	const db = await getDb();
 	await db.collection('settings').updateOne(
-		{ _id: SETTINGS_ID },
-		{ $set: settings, $setOnInsert: { createdAt: new Date() } },
+		{ userId },
+		{ $set: { ...settings, userId }, $setOnInsert: { createdAt: new Date() } },
 		{ upsert: true }
 	);
-	const updated = await db.collection('settings').findOne({ _id: SETTINGS_ID });
+	const updated = await db.collection('settings').findOne({ userId });
 	return json(updated);
 }
