@@ -151,35 +151,60 @@ Ein:e Testleiter:in führt durch den Test:
 6. **Kurzinterview** am Schluss (ca. 3–5 Min.).
 7. **Rollentausch** und zweite Runde.
 
-### 2.2 Feedback Grid (Vorlage)
+### 2.2 Feedback Grid
 
-> Dieses Grid wird für jede Testperson separat ausgefüllt.
+> Dieses Grid wurde für jede Testperson separat ausgefüllt. Beobachtungen wurden vom Testleiter während des Lauten Denkens notiert; Formulierungen teilweise nachträglich präzisiert.
 
 ---
 
-**Name/Code Testperson:** _______________  
-**Version Prototyp:** _______________  
-**Datum:** _______________
-
+**Name/Code Testperson:** TP-01 (Laurenz Ströbele)  
+**Version Prototyp:** studysprintv1.netlify.app  
+**Datum:** 20.05.2026
 
 | Was hat gut funktioniert? / Was hat gefallen? | Was hat nicht/schlecht funktioniert? / Was hat gestört? |
 | --------------------------------------------- | ------------------------------------------------------- |
-|                                               |                                                         |
-|                                               |                                                         |
-
-
+| Startseite gibt guten Überblick – findet Tagesplanung und Empfehlungen auf Anhieb | Menüpunkt «Validate» in der Navigation verwirrt – «Was soll ich dort?» (→ I-09) |
+| Gesamtworkflow (Planung → Fokus → Fortschritt) grundsätzlich nachvollziehbar | Importierte Aufgaben können nicht einzeln geprüft werden – nur «Alles übernehmen» oder löschen (→ I-13) |
+| Fortschritts-Tab positiv erwähnt – sieht Potenzial für Überblick | Import-Block und «Neue Aufgabe»-Formular blockieren Aufgabenliste – muss weit scrollen (→ I-16) |
+| Deadline-Import via Semesterplan als nützliche Idee wahrgenommen | «Quick Actions» auf der Startseite = reines Duplikat der Navigation, kein Mehrwert (→ I-04) |
+| | Aufgabenliste nicht sortierbar oder filterbar – keine Übersicht nach Relevanz (→ I-06) |
 
 | Was hat gefehlt (Funktionen, Optionen, Infos …)? | Was war unklar (Abfolge, Benennungen, Texte …)? / Welche Fragen sind aufgetaucht? |
 | ------------------------------------------------ | --------------------------------------------------------------------------------- |
-|                                                  |                                                                                   |
-|                                                  |                                                                                   |
-
-
+| Zurück-Button in der Navigation; Hinweis auf aktiven Filterstatus (→ I-01) | Begriff «Session» vs. «Task» – braucht es den Unterschied? Konzept unklar (→ I-08) |
+| Wochenchart im Fortschritts-Tab – Verlauf über Tage sichtbar machen (→ I-12) | Label «Dauer (Minuten)» – geschätzte Bearbeitungszeit oder Zielvorgabe? (→ I-02) |
+| Detailinfos bei abgeschlossenen Aufgaben: Modul, Titel, Soll/Ist-Dauer (→ I-11) | Datumsfeld ohne Label – unklar was eingetragen werden soll (→ I-03) |
+| Sortierung und Filterung der Aufgabenliste (Priorität, Deadline, Modul) (→ I-06) | Bezeichnung «Task-Seitenansicht» sichtbar im UI – interne Benennung (→ I-05) |
+| | Sessions-Zähler = 2, obwohl nur 1 Task abgeschlossen wurde – Diskrepanz unklar (→ I-10) |
 
 | Neue Ideen / Anforderungen |
 | -------------------------- |
-|                            |
+| Quick Actions durch Fortschrittsübersicht und «Aufgaben dieser Woche» ersetzen |
+| Fortschritts-Tab: Modul, Titel und Soll/Ist-Dauer pro abgeschlossener Aufgabe anzeigen |
+| Import-Review: jede extrahierte Aufgabe einzeln bearbeiten und gezielt übernehmen |
 
+---
+
+**Name/Code Testperson:** TP-02 (Maaruthan Vignarajah)  
+**Version Prototyp:** studysprintv1.netlify.app  
+**Datum:** 20.05.2026
+
+| Was hat gut funktioniert? / Was hat gefallen? | Was hat nicht/schlecht funktioniert? / Was hat gestört? |
+| --------------------------------------------- | ------------------------------------------------------- |
+| Gesamtworkflow verständlich – findet sich in der Struktur zurecht | OCR-/Bilderkennung liefert unzuverlässige Ergebnisse – Deadlines wurden nicht korrekt erkannt (→ I-15) |
+| Startseite gibt einen guten ersten Überblick | Profil-Bereich unvollständig – Name und Einstellungen fehlen oder sind nicht nutzbar (→ I-07) |
+| Fortschritts-Tab als sinnvoller Ansatz wahrgenommen | Fehlermeldung bei OCR-Fehler nicht aussagekräftig – kein Hinweis was schiefgelaufen ist (→ I-15) |
+| Semesterplan-Import als Idee positiv – würde Aufwand sparen | |
+
+| Was hat gefehlt (Funktionen, Optionen, Infos …)? | Was war unklar (Abfolge, Benennungen, Texte …)? / Welche Fragen sind aufgetaucht? |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Vollständiges Profil: Anzeigename, Einstellungen (→ I-07) | Wie wird eine Session korrekt abgeschlossen? Abschluss-Schritt nicht eindeutig |
+| Fallback-Hinweis wenn OCR scheitert – Empfehlung auf Text-Import (→ I-15) | Ladezustand während OCR-Verarbeitung nicht sichtbar – unklar ob App noch arbeitet (→ I-15) |
+
+| Neue Ideen / Anforderungen |
+| -------------------------- |
+| Fallback-Empfehlung auf Text-Import wenn OCR nicht zuverlässig funktioniert |
+| Klaren Abschluss-Button für Sessions; Profilverwaltung (Name, Wochenziel) ausbauen |
 
 ---
 
@@ -291,11 +316,11 @@ Die Evaluation mit zwei Mitstudierenden (20.05.2026, Version v1) zeigt, dass der
 | Tief      | Label «Dauer (Minuten)» präzisieren zu «Geschätzte Bearbeitungsdauer (Min.)»       | I-02: Semantisch unklar für Nutzende                               | umgesetzt (v2) |
 | Tief      | Label für Datumsfeld ergänzen («Deadline / Abgabefrist»)                           | I-03: Fehlende Orientierung im Formular                            | umgesetzt (v2) |
 | Tief      | Import-Beschreibungstext präzisieren                                               | I-14: Nutzende erkannten Funktion des Feldes nicht                 | umgesetzt (v2) |
-| Tief      | OCR-Fehlermeldung und Ladespinner verbessern                                       | I-15: Unzuverlässige Rückmeldung bei PDF-Import                    | offen          |
+| Tief      | OCR-Fehlermeldung und Ladespinner verbessern                                       | I-15: Unzuverlässige Rückmeldung bei PDF-Import                    | umgesetzt (v2)          |
 
 
 > Umgesetzte Verbesserungen sind in **Kapitel 4 (Erweiterungen)** der Hauptdokumentation festgehalten.
 
 ---
 
-*Usability Evaluation – StudySprint | ZHAW Prototyping | HS 2026*
+*Usability Evaluation – StudySprint | ZHAW Prototyping 
