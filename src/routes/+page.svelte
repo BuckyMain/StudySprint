@@ -1304,7 +1304,7 @@
 				<div class="card-body">
 					<h2 class="h5 mb-3">{authMode === 'register' ? 'Konto erstellen' : 'Anmelden'}</h2>
 					<p class="small text-secondary mb-3">
-						Melde dich an, damit deine Daten nur deinem Konto zugeordnet sind.
+						Melde dich an, um mit dem Lernen zu beginnen.
 					</p>
 					<div class="mb-3">
 						<label class="form-label small fw-semibold" for="auth-email">E-Mail</label>

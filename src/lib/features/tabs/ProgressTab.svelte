@@ -243,7 +243,7 @@
 									{/if}
 								{/each}
 							{:else}
-								<p class="small text-secondary mb-0">Keine Fokus-Notiz im gewählten Zeitraum vorhanden.</p>
+								<p class="small text-secondary mb-0">Keine Fokus-Notiz vorhanden.</p>
 							{/if}
 						</div>
 					{/if}

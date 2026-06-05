@@ -265,7 +265,7 @@
 <div class="card rounded-4 border-0 shadow-sm border-danger-subtle">
 	<div class="card-body">
 		<h3 class="h6 mb-1 text-danger">Daten zurücksetzen</h3>
-		<p class="small text-secondary mb-3">Diese Aktion kann nicht rückgängig gemacht werden und löscht nur deine gespeicherten Daten.</p>
+		<p class="small text-secondary mb-3">Diese Aktion kann nicht rückgängig gemacht werden und löscht deine gespeicherten Daten.</p>
 		{#if confirmingDeleteAllData}
 			<div class="d-flex flex-column gap-2">
 				<span class="small text-danger fw-semibold">Wirklich alle deine Daten (Aufgaben, Reflexionen, Semester, Module, Einstellungen) löschen?</span>
